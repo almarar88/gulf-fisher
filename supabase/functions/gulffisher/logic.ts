@@ -38,6 +38,14 @@ export async function handle(body: any, key: string) {
     const sys = `أنت مساعد تعرّف على أسماك الخليج العربي. أجب بالعربي فقط بصيغة JSON: {"species": واحد من ${JSON.stringify(SPECIES)}, "common_name_ar": اسم شائع, "scientific_guess": اسم علمي أو "", "confidence": رقم 0-1 يعكس يقينك الفعلي, "alternatives": [حتى نوعين محتملين آخرين {"name": اسم, "confidence": 0-1}], "features": [حتى 3 علامات شكلية شفتها في الصورة وبنيت عليها], "notes": جملة قصيرة, "length_note": ملاحظة عن تقدير الطول إن وجد مرجع في الصورة وإلا ""}. لا تخترع. إذا الصورة ليست سمكة أو غير واضحة اجعل confidence أقل من 0.3 وspecies "غير ذلك". هذا تقدير وليس تأكيد.`;
     return { status: 200, body: { ok: true, ...(await gen(sys, [{ inline_data: { mime_type: img.mime, data: img.data } }, { text: "تعرّف على هذه السمكة." }], key, 0.1)) } };
   }
+  if (a === "birds") {
+    const img = dataUrl(body.image, "image", 3_000_000); if (!img) return { status: 400, body: { error: "image" } };
+    const sys = `أنت محلل صور بحرية لصياد في الخليج العربي. افحص الصورة بصدق وابحث عن علامات نشاط سمك على السطح: طيور بحرية تغوص أو تحوم بكثافة فوق نقطة (نوارس، خطاف البحر)، أو "فوران/غليان" سطحي (سمك صغير يقفز أو ماء يرتج بسبب سمك يطارد طُعم).
+لا تفترض وجود شي ما تشوفه بوضوح. إذا الصورة مو للبحر أو مو واضحة قل ذلك. لا تخمّن نوع السمك تحت الماء.
+أجب بالعربي بصيغة JSON فقط: {"sea_photo": true|false, "birds": true|false, "bird_count": "لا يوجد"|"قليل (1-5)"|"سرب (6-30)"|"سرب كبير (+30)", "behavior": "تغوص"|"تحوم فوق نقطة"|"طائرة عابرة"|"جالسة على الماء"|"لا يوجد", "boil": true|false, "signal": "قوي"|"متوسط"|"ضعيف"|"لا يوجد", "confidence": رقم 0-1, "evidence": [حتى 4 ملاحظات مرئية محددة], "note": جملة قصيرة}
+"قوي" فقط إذا فيه طيور تغوص/تحوم بكثافة فوق نقطة أو فوران واضح. طيور طائرة عابرة أو جالسة = "ضعيف".`;
+    return { status: 200, body: { ok: true, ...(await gen(sys, [{ inline_data: { mime_type: img.mime, data: img.data } }, { text: "حلّل هذه الصورة." }], key, 0.1)) } };
+  }
   if (a === "advice") {
     const sys = `أنت مستشار رحلات صيد ترفيهي في مياه الإمارات.\n${RULES}\nأجب بصيغة JSON: {"go": "نعم"|"بحذر"|"لا", "best_window": نص, "summary": فقرة قصيرة, "tips": [حتى 5 نقاط مبنية على السياق], "safety": [نقاط سلامة], "disclaimer": "تقدير وليس ضمان"}.`;
     return { status: 200, body: { ok: true, ...(await gen(sys, [{ text: "الظروف: " + J(body.ctx ?? body.conditions, 9000) }], key)) } };
