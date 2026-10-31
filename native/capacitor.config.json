@@ -1,0 +1,11 @@
+{
+  "appId": "ae.almarar.gulffisher",
+  "appName": "صيّاد الخليج",
+  "webDir": "www",
+  "backgroundColor": "#06121f",
+  "android": { "backgroundColor": "#06121f", "allowMixedContent": false },
+  "plugins": {
+    "SplashScreen": { "launchShowDuration": 1200, "launchAutoHide": true, "backgroundColor": "#06121f", "showSpinner": false, "androidScaleType": "CENTER_CROP" },
+    "StatusBar": { "style": "DARK", "backgroundColor": "#06121f", "overlaysWebView": false }
+  }
+}
