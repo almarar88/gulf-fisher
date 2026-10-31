@@ -62,6 +62,8 @@ const P = {
   fuel: '<path d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M3 21h12M4 10h10M14 8l3 3v7a1.5 1.5 0 0 0 3 0V9l-3-3"/>',
   eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
 };
+P.bird = '<path d="M2 10c3-2.5 6.5-2.5 10 1.5 3.5-4 7-4 10-1.5"/><path d="M7 16c1.6-1.2 3.3-1.2 5 .6 1.7-1.8 3.4-1.8 5-.6"/>';
+P.front = '<path d="M3 9c3-3 6 3 9 0s6-3 9 0"/><path d="M3 15c3-3 6 3 9 0s6-3 9 0" opacity=".45"/>';
 const ALIAS = { loc: "location", tide: "wave", cal: "clock", wifi: "info", rec: "play" };
 const I = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${P[n] || P[ALIAS[n]] || ""}</svg>`;
 const paintIcons = (r = document) => $$("[data-i]", r).forEach((el) => { if (!el._i) { el.insertAdjacentHTML("afterbegin", I(el.dataset.i)); el._i = 1; } });
@@ -143,6 +145,7 @@ function recomputeHot() {
       let lg = 0; for (const r of catches) { const dy = (r.lat - lat) * 111, dx = (r.lon - lon) * kx; lg += Math.exp(-(dx * dx + dy * dy) / (2 * 8 * 8)); } lg = Math.min(1, lg);
       score[i * cols + j] = (HW.front * f + HW.chl * c + HW.slope * s + HW.depth * band + (structs.length ? HW.structure * st : 0) + HW.log * lg) / wsum;
     } }
+  v5Adjust(score);
   const sea = [...score].filter((x) => x >= 0).sort((a, b) => a - b);
   HOT = { score, p50: sea[Math.floor(sea.length * 0.6)], p98: sea[Math.floor(sea.length * 0.985)], structs: structs.length, catches: catches.length };
   if (map?.isStyleLoaded()) drawHot();
@@ -201,7 +204,7 @@ function initMap() {
   map.on("click", onMapClick); bindLongPress(); $("#goBtn").onclick = searchSheet;
   const co = (ll) => { const d = depthAt(ll.lat, ll.lng); $("#coord").textContent = `${dm(ll.lat, "N", "S")}  ${dm(ll.lng, "E", "W")}${d != null ? "  ·  ~" + U.depth(d) : ""}`; };
   map.on("mousemove", (e) => co(e.lngLat)); map.on("move", () => co(map.getCenter())); co(map.getCenter());
-  $("#layersBtn").onclick = layersSheet; $("#locBtn").onclick = () => locate(true);
+  $("#layersBtn").onclick = layersSheet; $("#birdBtn").onclick = birdSheet; $("#locBtn").onclick = () => locate(true);
 }
 function setMapStyle() { map.setStyle(styleUrl(), { diff: false }); }
 function firstSymbol() { return map.getStyle().layers.find((l) => l.type === "symbol")?.id; }
@@ -231,10 +234,10 @@ function addOverlays() { if (map.getSource("route")) return;
   map.addLayer({ id: "track", type: "line", source: "track", paint: { "line-color": "#ff375f", "line-width": 3.5 }, layout: { "line-cap": "round", "line-join": "round" } });
   map.addLayer({ id: "route", type: "line", source: "route", filter: ["==", "$type", "LineString"], paint: { "line-color": "#0a84ff", "line-width": 4, "line-dasharray": [1.5, 1] }, layout: { "line-cap": "round" } });
   map.addLayer({ id: "route-pt", type: "circle", source: "route", filter: ["==", "$type", "Point"], paint: { "circle-radius": 7, "circle-color": "#fff", "circle-stroke-color": "#0a84ff", "circle-stroke-width": 3 } });
-  applyLayers(); drawHot(); drawPois(); drawRoute(); drawTrack();
+  v5Overlays(below); applyLayers(); drawHot(); drawPois(); drawRoute(); drawTrack();
 }
 function applyLayers() { if (!map?.getLayer("hot")) return; const v = (id, on) => map.getLayer(id) && map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
-  v("hot", LAYERS.hot); v("seamark", LAYERS.seamark); v("contours", LAYERS.contours); v("contour-lbl", LAYERS.contours); v("gebco", LAYERS.gebco); v("sat", LAYERS.sat); v("pois", LAYERS.pois); v("pois-lbl", LAYERS.pois);
+  v("hot", LAYERS.hot); v("seamark", LAYERS.seamark); v("contours", LAYERS.contours); v("contour-lbl", LAYERS.contours); v("gebco", LAYERS.gebco); v("sat", LAYERS.sat); v("pois", LAYERS.pois); v("pois-lbl", LAYERS.pois); v("fronts", LAYERS.fronts !== false); v("fronts-old", LAYERS.fronts !== false && LAYERS.frontsOld !== false); v("birds", LAYERS.recs); v("birds-lbl", LAYERS.recs);
   markers.forEach((m) => (m.getElement().style.display = LAYERS.recs ? "" : "none")); $("#legend").classList.toggle("hidden", !LAYERS.hot); }
 function drawHot() { if (!HOT || !map?.getSource("hot")) return; const { url, coords } = hotImage(); map.getSource("hot").updateImage({ url, coordinates: coords });
   $("#legend").innerHTML = `<b>البقع المرجّحة (تقدير)</b><div class="ramp"></div><div class="ends"><span>أقل</span><span>أعلى</span></div><div style="color:var(--fg2);margin-top:3px">حرارة السطح ${esc((OCEAN.sst_time || "").slice(0, 10))} · كلوروفيل ${esc((OCEAN.chl_time || "").slice(0, 10))}</div>`; }
@@ -247,8 +250,8 @@ function drawRecs() { markers.forEach((m) => m.remove()); markers = []; if (!map
 function layersSheet() {
   const rows = [["hot", "البقع المرجّحة", "تقدير من حرارة السطح والكلوروفيل والقاع", "sparkles", "#ff375f"], ["seamark", "علامات بحرية OpenSeaMap", "فنارات وعوامات وحطام (من زوم 8)", "anchor", "#0a84ff"],
     ["contours", "خطوط الأعماق", "من SRTM15+ (‏5–200 م)", "wave", "#64d2ff"], ["gebco", "تظليل الأعماق GEBCO", "شبكة GEBCO الأحدث 15 ثانية قوسية", "drop", "#5e5ce6"],
-    ["sat", "صور الأقمار الصناعية", "Esri World Imagery", "sat", "#30d158"], ["pois", "شعاب وحطام وجزر", `من OpenStreetMap (${POIS.length})`, "pin", "#ff9f0a"], ["recs", "نقاطي وصيداتي", "مشفّرة", "star", "#ffd60a"]];
-  const m = openSheet(`<h2>طبقات الخريطة</h2>${rows.map(([k, t, s, i, c]) => `<div class="layer-row"><div style="display:flex;gap:12px;align-items:center">${ic(i, c)}<div class="m"><b>${t}</b><small>${s}</small></div></div><input type="checkbox" class="switch" data-k="${k}" ${LAYERS[k] ? "checked" : ""}></div>`).join("")}
+    ["sat", "صور الأقمار الصناعية", "Esri World Imagery", "sat", "#30d158"], ["pois", "شعاب وحطام وجزر", `من OpenStreetMap (${POIS.length})`, "pin", "#ff9f0a"], ["recs", "نقاطي وصيداتي والطيور", "مشفّرة", "star", "#ffd60a"], ["fronts", "خطوط الماء", "جبهات حرارة/كلوروفيل/عكارة من الأقمار", "front", "#ff453a"], ["frontsOld", "خطوط الأيام السابقة", "متقطّعة وباهتة لمقارنة الحركة", "clock", "#8e8e93"]];
+  const m = openSheet(`<h2>طبقات الخريطة</h2>${rows.map(([k, t, s, i, c]) => `<div class="layer-row"><div style="display:flex;gap:12px;align-items:center">${ic(i, c)}<div class="m"><b>${t}</b><small>${s}</small></div></div><input type="checkbox" class="switch" data-k="${k}" ${LAYERS[k] ?? (k.startsWith("fronts") ? true : false) ? "checked" : ""}></div>`).join("")}
     <p class="fine">المصادر: الخريطة OpenFreeMap/OpenStreetMap، العلامات OpenSeaMap، الأعماق GEBCO وSRTM15+. EMODnet ما يغطي الخليج فما استخدمناه. ليست خريطة ملاحية.</p>`);
   $$(".switch", m).forEach((s) => s.onchange = () => { LAYERS[s.dataset.k] = s.checked; saveLayers(); applyLayers(); haptic(5); });
 }
@@ -265,6 +268,8 @@ let ROUTE = { on: false, pts: [] };
 function onMapClick(e) {
   if (NAV.on || Date.now() - LP < 800) return; const { lat, lng: lon } = e.lngLat;
   if (ROUTE.on) { ROUTE.pts.push({ lat, lon }); haptic(6); drawRoute(); routeSheet(); return; }
+  const bb = [[e.point.x - 6, e.point.y - 6], [e.point.x + 6, e.point.y + 6]], fr = map.queryRenderedFeatures(bb, { layers: ["fronts", "fronts-old"].filter((l) => map.getLayer(l)) })[0];
+  if (fr) return frontSheet(fr.properties, lat, lon);
   const f = map.queryRenderedFeatures(e.point, { layers: ["pois"].filter((l) => map.getLayer(l)) })[0];
   pointSheet(lat, lon, f?.properties);
 }
@@ -336,8 +341,8 @@ function catchSheet({ lat, lon, photo: ph0, guess }) { needKey(() => {
   $("#cOk", m).onclick = async () => { const n = (id) => { const v = parseFloat($(id, m).value); return isNaN(v) ? null : v; };
     const cond = condAt(new Date()); const ex = lat != null ? explain(lat, lon) : null;
     await saveRec("catch", { species: $("#cs", m).value, other: $("#co", m).value, length: n("#cl"), weight: n("#cw"), bait: $("#cb", m).value, depth: n("#cd"), released: $("#crel", m).checked, notes: $("#cx", m).value, photo, lat, lon, t: Date.now(),
-      moon: moon().idx, tide: cond?.tideStage || null, pressure: cond?.pressure ?? null, ptrend: cond?.ptrend ?? null, wind: cond?.wind ?? null, wave: cond?.wave ?? null, sst: ex?.sst ?? cond?.sst ?? null });
-    haptic([8, 30, 8]); closeSheet(); drawRecs(); recomputeHot(); toast("انحفظت الصيدة مشفّرة"); rerender(); };
+      ...condRec(lat, lon) });
+    haptic([8, 30, 8]); closeSheet(); drawRecs(); afterLearn(); toast("انحفظت الصيدة مشفّرة"); rerender(); };
 }); }
 async function ai(body) { const t = await token(); const r = await fetch(FN, { method: "POST", headers: { "content-type": "application/json", Authorization: "Bearer " + t, apikey: SB_ANON }, body: JSON.stringify(body) });
   const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || "خطأ " + r.status); return j; }
@@ -563,9 +568,9 @@ function renderLog() {
   const moons = Array(8).fill(0); cs.forEach((c) => c.moon != null && moons[c.moon]++); const mm = Math.max(1, ...moons);
   const kg = cs.reduce((a, c) => a + (c.weight || 0), 0);
   v.innerHTML = `<h1 class="large-title">سجلّي</h1><p class="subtitle">مشفّر على جهازك · ${navigator.onLine ? "متزامن" : "بيتزامن لما يرجع النت"}</p><button class="btn tinted block" id="lsum">${I("sparkles")}لخّص سجلّي بالذكاء الاصطناعي</button><div id="lsumOut"></div>
-  <div class="actions" style="margin:0 0 14px"><button class="btn primary sm" id="addC">${I("plus")}صيدة</button><button class="btn sm" id="addS">${I("star")}نقطة من موقعي</button><button class="btn sm" id="exp">${I("share")}GPX</button></div>
+  <div class="actions" style="margin:0 0 14px"><button class="btn primary sm" id="addC">${I("plus")}صيدة</button><button class="btn sm" id="addS">${I("star")}نقطة من موقعي</button><button class="btn sm" id="addB">${I("ban")}رحلة بدون صيد</button><button class="btn sm" id="exp">${I("share")}GPX</button></div>
   <div class="grid g3"><div class="tile" style="min-height:0"><span class="lbl">${I("fish")}صيدات</span><span class="stat-big">${cs.length}</span></div><div class="tile" style="min-height:0"><span class="lbl">${I("star")}نقاط</span><span class="stat-big">${sp.length}</span></div><div class="tile" style="min-height:0"><span class="lbl">${I("chart")}كجم</span><span class="stat-big">${fmt(kg, 1)}</span></div></div>
-  ${cs.length ? `<div class="section-h">${I("sparkles")}أفضل ظروفك (من سجلّك)</div>${learned(cs)}
+  ${modelCard()}${cs.length ? `<div class="section-h">${I("sparkles")}أفضل ظروفك (من سجلّك)</div>${learned(cs)}
   <div class="grid g2" style="margin-top:12px"><div class="card"><h3>${I("fish")}حسب النوع</h3>${hbars(count(cs, (c) => spName(c.species, c.other)), "var(--blue)")}</div>
     <div class="card"><h3>${I("star")}حسب النقطة</h3>${hbars(count(cs, (c) => nearSpot(c) || "بدون نقطة محفوظة"), "var(--orange)")}</div>
     <div class="card"><h3>${I("tide")}حسب المد</h3>${hbars(count(cs, (c) => c.tide || "غير مسجّل"), "var(--teal)")}</div>
@@ -579,6 +584,7 @@ function renderLog() {
   $$(".row[data-id]", v).forEach((el) => el.onclick = () => { const r = RECS.find((x) => x.id === el.dataset.id); if (r?.lat != null) { show("map"); map.jumpTo({ center: [r.lon, r.lat], zoom: 11 }); } recSheet(r); });
   $("#addC", v).onclick = () => locate(false).then((h) => catchSheet(h || { lat: null, lon: null }));
   $("#addS", v).onclick = () => locate(false).then((h) => h ? spotSheet(h) : toast("ما قدرنا نحدد موقعك، اضغط على الخريطة بدال"));
+  $("#addB", v).onclick = blankSheet;
   $("#exp", v).onclick = gpx;
 }
 function gpx() { const x = (s) => esc(s);
@@ -810,7 +816,9 @@ function searchSheet() { loadNavData().then(() => {
   let F = "all"; const m = openSheet(`<h2>وين بتروح؟</h2><div class="meta">اختار وجهة، أو اضغط مطوّلاً على البحر في الخريطة</div>
     <div class="searchbox">${I("search")}<input id="q" type="search" placeholder="ابحث: ميناء، مرسى، شعاب، حطام، نقطتك…" autocomplete="off"></div>
     <div class="chips" id="qf">${[["all", "الكل"], ["mine", "نقاطي"], ["port", "موانئ ومراسي"], ["struct", "شعاب وحطام"]].map(([k, t]) => `<button class="chip${k === "all" ? " on" : ""}" data-f="${k}">${t}</button>`).join("")}</div>
+    <button class="row dest" id="qFront">${ic("front", "#ff453a")}<div class="m"><b>أقرب خط ماء</b><small>جبهة حرارة/كلوروفيل متوسطة أو قوية من بيانات اليوم</small></div>${I("chev", "chev")}</button>
     <div class="list" id="ql"></div>`);
+  $("#qFront", m).onclick = () => nearestFront();
   const draw = () => { const q = $("#q", m).value.trim().toLowerCase(); const L = destList().filter((x) => (F === "all" || (F === "mine" && (x.k === "spot" || x.k === "catch")) || (F === "port" && x.k === "port") || (F === "struct" && ["reef", "wreck", "shoal"].includes(x.k))) && (!q || (x.n + " " + (x.en || "") + " " + KIND_AR[x.k]).toLowerCase().includes(q))).slice(0, 40);
     $("#ql", m).innerHTML = L.length ? L.map((x, n) => `<button class="row dest" data-n="${n}">${ic(kindIcon(x.k), x.k === "port" ? "var(--blue)" : x.k === "spot" || x.k === "catch" ? "var(--orange)" : "var(--teal, #30b0c7)")}<div class="m"><b>${esc(x.n)}</b><small>${KIND_AR[x.k] || ""}${x.en && x.en !== x.n ? " · " + esc(x.en) : ""}</small></div><span class="small" dir="ltr">${U.dist(x.km)}</span></button>`).join("") : `<p class="fine">ما فيه نتائج${!KEY && F === "mine" ? " — افتح الخزنة عشان تشوف نقاطك" : ""}</p>`;
     $$(".dest", m).forEach((b) => b.onclick = () => { const x = L[+b.dataset.n]; planNav({ lat: x.lat, lon: x.lon, n: x.n, k: x.k }); }); };
@@ -984,14 +992,18 @@ function renderAI() { const v = $("#v-ai"); if (!v) return;
   v.innerHTML = `<div class="ai-hero"><div class="ai-orb">${I("sparkles")}</div><h1>المساعد الذكي</h1><p>Gemini عبر خادم خاص بحسابك · تقديرات وليست ضمان</p></div>
     <div class="ai-actions"><button class="ai-act" id="aPlan">${ic("route", "linear-gradient(135deg,#0a84ff,#5e5ce6)")}<b>خطة اليوم</b><small>أفضل بقعة ووقت ومسار</small></button>
       <button class="ai-act" id="aFish">${ic("camera", "linear-gradient(135deg,#30d158,#0a84ff)")}<b>تعرّف على سمكة</b><small>من صورة</small><input id="aFishIn" type="file" accept="image/*" capture="environment" hidden></button>
+      <button class="ai-act" id="aBird">${ic("bird", "linear-gradient(135deg,#64d2ff,#0a84ff)")}<b>رادار الطيور</b><small>صوّر سرب يغوص</small><input id="aBirdIn" type="file" accept="image/*" capture="environment" hidden></button>
+      <button class="ai-act" id="aFront">${ic("front", "linear-gradient(135deg,#ff453a,#30d158)")}<b>أقرب خط ماء</b><small>وجّهني له</small></button>
       <button class="ai-act" id="aLog">${ic("chart", "linear-gradient(135deg,#ff9f0a,#ff375f)")}<b>لخّص سجلّي</b><small>أنماط صيداتك</small></button></div>
-    <div id="aiPlan"></div><div id="aiFishOut"></div><div id="aiLogOut"></div>
+    <div id="aiPlan"></div><div id="aiBirdOut"></div><div id="aiFishOut"></div><div id="aiLogOut"></div>
     <div class="section-h">${I("bot")}المحادثة</div><div id="chat" class="chat"></div><div style="height:96px"></div>
     <div class="composer glass"><button class="round mic" id="aMic" aria-label="سؤال صوتي">${I("mic")}</button><input id="aQ" placeholder="اسأل… مثلاً: وين أروح العصر؟" enterkeyhint="send"><button class="round send" id="aSend" aria-label="إرسال">${I("send")}</button></div>`;
   paintIcons(v); renderChat(); if (AIPLAN) planCard(AIPLAN);
   $("#aSend", v).onclick = () => { const q = $("#aQ").value.trim(); if (q) { $("#aQ").value = ""; ask(q); } }; $("#aQ", v).onkeydown = (e) => { if (e.key === "Enter") $("#aSend").click(); };
   $("#aMic", v).onclick = toggleRec; $("#aPlan", v).onclick = runPlan; $("#aLog", v).onclick = () => runLogSummary($("#aiLogOut"));
   $("#aFish", v).onclick = (e) => { if (e.target.id !== "aFishIn") $("#aFishIn").click(); };
+  $("#aBird", v).onclick = (e) => { if (e.target.id !== "aBirdIn") $("#aBirdIn").click(); }; $("#aFront", v).onclick = () => nearestFront();
+  $("#aBirdIn", v).onchange = async (e) => { const f = e.target.files[0]; if (!f) return; birdScan(await resizePhoto(f), $("#aiBirdOut")); };
   $("#aFishIn", v).onchange = async (e) => { const f = e.target.files[0]; if (!f) return; const ph = await resizePhoto(f); fishId(ph, $("#aiFishOut"), true); }; }
 async function ask(q, audio) {
   if (!navigator.onLine) return toast("المساعد يحتاج اتصال"); const hist = CHAT.filter((m) => !m.wait && !m.err).slice(-10).map((m) => ({ role: m.role, text: m.text }));
@@ -1057,6 +1069,127 @@ async function runLogSummary(out) { if (!out) return; if (!KEY) return needKey((
       <p class="fine">${esc(d.caveat || "")} الأنماط من صيداتك أنت فقط، وتتحسن كل ما سجّلت أكثر.</p></div>`; paintIcons(out); }
   catch (e) { out.innerHTML = `<div class="note warn">${I("warn")}<div>${esc(AIERR(e))}</div></div>`; paintIcons(out); } }
 
+/* ================= v5: خط الماء (fronts) · رادار الطيور · ذاكرة البحر ================= */
+const FT_AR = { sst: "حرارة", chl: "كلوروفيل", kd: "عكارة" }, FT_COL = { sst: "#ff453a", chl: "#30d158", kd: "#c08a4a" };
+let FRONTS = null;
+async function loadFronts() { if (FRONTS) return FRONTS; FRONTS = await fetch("data/fronts.geojson").then((r) => r.json()).catch(() => null); return FRONTS; }
+const frontsAge0 = (fc, strongOnly) => (fc?.features || []).filter((f) => f.properties.age === 0 && (!strongOnly || f.properties.s !== "ضعيف"));
+function v5Overlays(below) {
+  map.addSource("fronts", { type: "geojson", data: "data/fronts.geojson" });
+  const col = ["match", ["get", "t"], "sst", FT_COL.sst, "chl", FT_COL.chl, FT_COL.kd], w = ["match", ["get", "s"], "قوي", 3.2, "متوسط", 2.2, 1.3];
+  map.addLayer({ id: "fronts-old", type: "line", source: "fronts", filter: [">", ["get", "age"], 0], paint: { "line-color": col, "line-width": ["*", 0.7, w], "line-opacity": ["match", ["get", "age"], 1, 0.45, 0.25], "line-dasharray": [2, 2] }, layout: { "line-cap": "butt" } }, below);
+  map.addLayer({ id: "fronts", type: "line", source: "fronts", filter: ["==", ["get", "age"], 0], paint: { "line-color": col, "line-width": w, "line-opacity": 0.95 }, layout: { "line-cap": "round", "line-join": "round" } }, below);
+  map.addSource("birds", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  map.addLayer({ id: "birds", type: "circle", source: "birds", paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 6, 5, 12, 11], "circle-color": "#fff", "circle-stroke-color": "#0a84ff", "circle-stroke-width": 3, "circle-opacity": ["get", "o"], "circle-stroke-opacity": ["get", "o"] } });
+  map.addLayer({ id: "birds-lbl", type: "symbol", source: "birds", layout: { "text-field": ["get", "label"], "text-size": 11, "text-offset": [0, 1.4], "text-font": ["Noto Sans Regular"], "text-allow-overlap": true }, paint: { "text-color": "#fff", "text-halo-color": "rgba(0,0,0,.75)", "text-halo-width": 1.3 } });
+  drawBirds();
+}
+/* ---- fronts UI ---- */
+function frontSheet(p, lat, lon) {
+  const m = openSheet(`<h2>خط ماء · ${FT_AR[p.t] || p.t}</h2><div class="meta">${dm(lat, "N", "S")} · ${dm(lon, "E", "W")}</div>
+    <div class="grid g2"><div class="tile"><span class="lbl">${I("front")}القوة</span><span class="big">${esc(p.s)}</span><span class="small">تدرّج ${fmt(p.g, 3)} ${esc(p.unit)}</span></div>
+    <div class="tile"><span class="lbl">${I("clock")}تاريخ البيانات</span><span class="big" style="font-size:20px">${esc(p.day)}</span><span class="small">${p.age ? `قبل ${p.age} يوم من أحدث صورة` : "أحدث يوم متوفر"} · طوله ${fmt(p.km, 0)} كم</span></div></div>
+    <div class="note info">${I("info")}<div>${p.t === "sst" ? "حدّ بين مياه دافئة وباردة من NASA MUR SST (‏1 كم، تحليل يومي)." : p.t === "chl" ? "حدّ بين مياه خضراء غنية بالعوالق ومياه أصفى، من كلوروفيل NOAA المملوء الفجوات (DINEOF ‏2 كم) — يتأخر عادة ~10 أيام." : "حدّ عكارة (Kd490) من NOAA DINEOF ‏2 كم — يتأخر عادة ~10 أيام."} الخطوط تتحرك يومياً، فهي مؤشر وليست ضمان سمك، وما نرسم خطوط داخل ~4 كم من الساحل.</div></div>
+    <div class="actions"><button class="btn primary sm" id="fNav">${I("navi")}وجّهني</button><button class="btn sm" id="fNear">${I("front")}أقرب خط قوي</button></div>`);
+  $("#fNav", m).onclick = () => planNav({ lat, lon, n: `خط ماء (${FT_AR[p.t]}) ${p.day}`, k: "front" });
+  $("#fNear", m).onclick = () => nearestFront();
+}
+async function nearestFront(from) {
+  const fc = await loadFronts(); if (!fc) return toast("بيانات خطوط الماء ما تحمّلت"), null;
+  if (!from) { await ensureHere(); from = here ? { lat: here.lat, lon: here.lon } : map ? { lat: map.getCenter().lat, lon: map.getCenter().lng } : null; } if (!from) return null;
+  let best = null; for (const f of frontsAge0(fc, true)) for (const [lon, lat] of f.geometry.coordinates) { const d = haversine(from, { lat, lon }); if (d < 0.3) continue; if (!best || d < best.d) best = { d, lat, lon, p: f.properties }; }
+  if (!best) { toast("ما فيه خطوط ماء متوسطة/قوية اليوم"); return null; }
+  return planNav({ lat: best.lat, lon: best.lon, n: `أقرب خط ماء (${FT_AR[best.p.t]} · ${best.p.s}) ${best.p.day}`, k: "front" });
+}
+/* ---- رادار الطيور ---- */
+const SIG_W = { "قوي": 1, "متوسط": 0.6, "ضعيف": 0.3 }, BIRD_LIFE_H = 6;
+const activeBirds = (now = Date.now()) => RECS.filter((r) => r.kind === "bird" && r.lat != null && SIG_W[r.signal] && now - r.t < BIRD_LIFE_H * 3600e3);
+function drawBirds() { if (!map?.getSource("birds")) return; const now = Date.now();
+  map.getSource("birds").setData({ type: "FeatureCollection", features: activeBirds(now).map((r) => { const h = (now - r.t) / 3600e3; return { type: "Feature", geometry: { type: "Point", coordinates: [r.lon, r.lat] }, properties: { id: r.id, o: Math.max(0.25, Math.exp(-h / 2)), label: `طيور · ${r.signal} · ${h < 1 ? Math.round(h * 60) + " د" : h.toFixed(1) + " س"}` } }; }) }); }
+setInterval(() => { if (activeBirds().length || drawBirds._was) { drawBirds._was = activeBirds().length > 0; recomputeHot(); drawBirds(); } }, 10 * 60e3);
+function birdCard(d) { const cf = clamp(d.confidence || 0), sc = { "قوي": "bad", "متوسط": "warn", "ضعيف": "info" }[d.signal] || "";
+  if (d.sea_photo === false) return `<div class="note warn">${I("warn")}<div>الصورة ما تبين بحر. صوّر سطح الماء والطيور فوقه.</div></div>`;
+  return `<div class="fish-res"><div class="fr-h"><b>إشارة ${esc(d.signal || "—")}</b>${sc ? `<span class="badge ${sc}">${esc(d.bird_count || "")}</span>` : ""}</div>
+    <div class="list">${[["الطيور", d.bird_count || "—"], ["سلوكها", d.behavior || "—"], ["فوران سمك على السطح", d.boil ? "نعم" : "لا"]].map(([a, b]) => `<div class="row"><div class="m"><b>${a}</b></div><span>${esc(b)}</span></div>`).join("")}</div>
+    <div class="conf"><span>الثقة</span>${bar(cf, cf >= 0.75 ? "var(--green)" : "var(--yellow)")}<b>${Math.round(cf * 100)}٪</b></div>
+    ${(d.evidence || []).length ? `<ul class="ai-list">${d.evidence.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}${d.note ? `<p class="fine">${esc(d.note)}</p>` : ""}</div>`; }
+async function logBird(d, where) { return new Promise((res) => needKey(async () => {
+  await ensureHere(); const pos = where || (here ? { lat: here.lat, lon: here.lon } : null);
+  if (!pos) { toast("نحتاج موقعك GPS عشان نسجّل الطيور"); return res(null); }
+  const id = await saveRec("bird", { lat: pos.lat, lon: pos.lon, t: Date.now(), signal: d.signal, behavior: d.behavior || null, boil: !!d.boil, confidence: d.confidence ?? 0.6, count: d.bird_count || null, src: d.src || "photo" });
+  recomputeHot(); drawBirds(); haptic([8, 30, 8]); toast("انسجّلت الطيور · ترفع الترجيح حولها لين 6 ساعات"); res(id); })); }
+async function birdScan(photo, out) {
+  if (!navigator.onLine) return toast("الرادار يحتاج اتصال"); out.innerHTML = `<div class="card"><img class="photo" src="${photo}"><p class="fine">${I("sparkles")}جاري تحليل الطيور والسطح…</p></div>`; paintIcons(out);
+  try { const d = (await ai({ action: "birds", image: photo })).data || {}; out.innerHTML = `<div class="card"><img class="photo" src="${photo}">${birdCard(d)}${d.sea_photo !== false && SIG_W[d.signal] ? `<button class="btn primary block" id="bLog">${I("pin")}سجّلها هنا (GPS)</button>` : ""}</div>`; paintIcons(out);
+    $("#bLog", out) && ($("#bLog", out).onclick = async () => { if (await logBird(d)) $("#bLog", out).remove(); }); return d; }
+  catch (e) { out.innerHTML = `<div class="note warn">${I("warn")}<div>تعذّر التحليل: ${esc(AIERR(e))}</div></div>`; paintIcons(out); } }
+function birdSheet() {
+  const m = openSheet(`<h2>رادار الطيور</h2><div class="meta">الطيور اللي تغوص أو تحوم فوق نقطة غالباً فوق سمك طُعم</div>
+    <label class="btn primary block" style="cursor:pointer">${I("camera")}صوّر الطيور<input id="bIn" type="file" accept="image/*" capture="environment" hidden></label><div id="bOut"></div>
+    <div class="section-h">شفتها بعيني (بدون صورة)</div><div class="actions">${["قوي", "متوسط", "ضعيف"].map((s) => `<button class="btn sm" data-s="${s}">${s === "قوي" ? "سرب يغوص" : s === "متوسط" ? "طيور تحوم" : "طيور قليلة"}</button>`).join("")}</div>
+    <div class="note info">${I("sat")}<div><b>ليش ما فيه رادار طيور بالأقمار الصناعية؟</b> الأقمار المجانية مثل Sentinel-2 دقتها 10 م (الطير أصغر من بكسل)، وتمرّ كل ~5 أيام، والصورة توصل بعد ساعات — والسرب يتحرك خلال دقائق. فما بنزيّف ميزة ما تشتغل؛ الرادار هنا من كاميرتك وعينك فقط.</div></div>
+    <div class="list">${activeBirds().map((r) => `<div class="row"><div class="m"><b>${esc(r.signal)} · ${esc(r.behavior || "")}</b><small>${new Date(r.t).toLocaleTimeString("ar-AE", { timeStyle: "short" })}</small></div></div>`).join("")}</div>`);
+  $("#bIn", m).onchange = async (e) => { const f = e.target.files[0]; if (f) birdScan(await resizePhoto(f), $("#bOut", m)); };
+  $$("[data-s]", m).forEach((b) => b.onclick = () => logBird({ signal: b.dataset.s, behavior: b.textContent, confidence: 0.7, src: "manual" }));
+}
+/* ---- ذاكرة البحر: on-device logistic regression ---- */
+const MF = [["sst", "حرارة السطح"], ["lchl", "الكلوروفيل"], ["depth", "العمق"], ["front", "قرب جبهة حرارية"], ["edge", "حافة كلوروفيل"], ["slope", "انحدار القاع"], ["moon", "إضاءة القمر"], ["tide", "حركة المد"], ["ptrend", "اتجاه الضغط"], ["wind", "الريح"], ["light", "الفجر/المغرب"]], NSP = 6;
+function seaFeat(lat, lon) { const c = cellOf(lat, lon); if (!c) return null; const [i, j] = c; const d = OCEAN.depth[i][j]; if (d < 0) return null; const chl = OCEAN.chl[i][j];
+  return { sst: OCEAN.sst[i][j] / 10, lchl: chl > 0 ? Math.log10(chl / 100) : null, depth: d, front: OCEAN.parts.sst_front[i][j] / 100, edge: OCEAN.parts.chl_edge[i][j] / 100, slope: OCEAN.parts.slope[i][j] / 100 }; }
+const twilight = (t) => { const h = +new Date(t).toLocaleString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Dubai" }).replace(":", ".") ; const x = Math.floor(h) + (h % 1) / 0.6; return Math.exp(-Math.min((x - 6) ** 2, (x - 17.5) ** 2) / 2); };
+function timeFeat(r) { return { moon: r.moon != null ? (1 - Math.cos(2 * Math.PI * r.moon / 8)) / 2 : null, tide: r.tide ? (r.tide.includes("ركود") ? 0 : 1) : null, ptrend: r.ptrend ?? null, wind: r.wind ?? null, light: r.t ? twilight(r.t) : null }; }
+function recVec(r) { const s = r.feat || seaFeat(r.lat, r.lon); if (!s) return null; return { ...s, ...timeFeat(r) }; }
+let rng = 1; const rnd = () => ((rng = (rng * 16807) % 2147483647) / 2147483647);
+function trainSeaModel() {
+  if (!OCEAN) return null; const pos = RECS.filter((r) => r.kind === "catch" && r.lat != null).map(recVec).filter(Boolean), neg = RECS.filter((r) => r.kind === "blank" && r.lat != null).map(recVec).filter(Boolean);
+  if (pos.length < 3) return (SEAM = { n: pos.length, nb: neg.length, w: 0, ready: false });
+  const keys = MF.map((x) => x[0]), mean = {}; for (const k of keys) { const v = pos.map((x) => x[k]).filter((x) => x != null); mean[k] = v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0; }
+  rng = 7; const bg = [], nbg = Math.min(300, pos.length * 4), { rows, cols, step, lat0, lon0 } = OCEAN; let guard = 0;
+  while (bg.length < nbg && guard++ < 20000) { const cr = RECS.filter((r) => r.kind === "catch" && r.lat != null), p = cr[Math.floor(rnd() * cr.length)];
+    const lat = p.lat + (rnd() - 0.5) * 0.54, lon = p.lon + (rnd() - 0.5) * 0.6, s = seaFeat(lat, lon); if (!s) continue; bg.push({ ...s, moon: mean.moon, tide: mean.tide, ptrend: mean.ptrend, wind: mean.wind, light: mean.light }); }
+  const X = [], Y = [], W = []; const fill = (x) => keys.map((k) => x[k] ?? mean[k]);
+  pos.forEach((x) => { X.push(fill(x)); Y.push(1); W.push(1); }); neg.forEach((x) => { X.push(fill(x)); Y.push(0); W.push(1); }); bg.forEach((x) => { X.push(fill(x)); Y.push(0); W.push(pos.length / bg.length); });
+  const mu = keys.map((_, k) => X.reduce((a, x) => a + x[k], 0) / X.length), sd = keys.map((_, k) => Math.sqrt(X.reduce((a, x) => a + (x[k] - mu[k]) ** 2, 0) / X.length) || 1);
+  const Z = X.map((x) => x.map((v, k) => (v - mu[k]) / sd[k]));
+  const fit = (idx) => { const b = new Array(keys.length + 1).fill(0), lam = 0.3, lr = 0.3, sw = idx.reduce((a, n) => a + W[n], 0);
+    for (let it = 0; it < 400; it++) { const g = new Array(b.length).fill(0); for (const n of idx) { const z = Z[n], p = 1 / (1 + Math.exp(-(b[0] + z.reduce((a, v, k) => a + v * b[k + 1], 0)))), e = (p - Y[n]) * W[n]; g[0] += e; z.forEach((v, k) => (g[k + 1] += e * v)); }
+      for (let k = 0; k < b.length; k++) b[k] -= lr * (g[k] / sw + (k ? lam * b[k] / sw * 4 : 0)); } return b; };
+  const pred = (b, z) => 1 / (1 + Math.exp(-(b[0] + z.reduce((a, v, k) => a + v * b[k + 1], 0))));
+  let auc = null; if (pos.length >= 8) { const all = Z.map((_, n) => n), sc = []; for (let f = 0; f < 4; f++) { const tr = all.filter((n) => n % 4 !== f), b = fit(tr); all.filter((n) => n % 4 === f).forEach((n) => sc.push([pred(b, Z[n]), Y[n], W[n]])); }
+    const P = sc.filter((x) => x[1] === 1), N = sc.filter((x) => x[1] === 0); let num = 0, den = 0; for (const p of P) for (const q of N) { num += q[2] * (p[0] > q[0] ? 1 : p[0] === q[0] ? 0.5 : 0); den += q[2]; } auc = den ? num / den : null; }
+  const b = fit(Z.map((_, n) => n)), n = pos.length + neg.length;
+  const imp = keys.map((k, i) => ({ k, ar: MF[i][1], c: b[i + 1], spatial: i < NSP })).sort((a, c) => Math.abs(c.c) - Math.abs(a.c));
+  const w = 0.4 * n / (n + 15) * (auc != null && auc < 0.55 ? 0.3 : 1);
+  SEAM = { ready: true, keys, mu, sd, b, auc, n: pos.length, nb: neg.length, nbg: bg.length, w, imp, mean, t: Date.now() }; return SEAM;
+}
+let SEAM = null;
+async function persistModel() { if (!SEAM?.ready || !KEY) return; const old = RECS.find((r) => r.kind === "model"); const { keys, mu, sd, b, auc, n, nb, w, t } = SEAM; await saveRec("model", { keys, mu, sd, b, auc, n, nb, w, t }, old?.id); }
+function nowTime() { const c = condAt(new Date()); return { moon: (1 - Math.cos(2 * Math.PI * moon().idx / 8)) / 2, tide: c?.tideStage ? (c.tideStage.includes("ركود") ? 0 : 1) : null, ptrend: c?.ptrend ?? null, wind: c?.wind ?? null, light: twilight(Date.now()) }; }
+function modelProb(x) { const M = SEAM; const z = M.keys.map((k, i) => ((x[k] ?? M.mean[k]) - M.mu[i]) / M.sd[i]); return 1 / (1 + Math.exp(-(M.b[0] + z.reduce((a, v, i) => a + v * M.b[i + 1], 0)))); }
+function todayMatch() { if (!SEAM?.ready) return null; const t = nowTime(), m = SEAM.mean; return modelProb({ ...Object.fromEntries(SEAM.keys.slice(0, NSP).map((k) => [k, m[k]])), ...t }); }
+function v5Adjust(score) { // bird boost + personal model blend, applied after base score
+  const { rows, cols, step, lat0, lon0 } = OCEAN, B = activeBirds(), now = Date.now(); if (!SEAM || SEAM.stamp !== RECS.length) { trainSeaModel(); SEAM.stamp = RECS.length; }
+  const M = SEAM?.ready ? SEAM : null, tf = M ? nowTime() : null;
+  if (M) for (let i = 0; i < rows; i++) for (let j = 0; j < cols; j++) { const k = i * cols + j; if (score[k] < 0) continue; const s = seaFeat(lat0 + i * step, lon0 + j * step); if (!s) continue; score[k] = (1 - M.w) * score[k] + M.w * modelProb({ ...s, ...tf }); }
+  for (const r of B) { const h = (now - r.t) / 3600e3, a = SIG_W[r.signal] * clamp(r.confidence ?? 0.6) * Math.exp(-h / 2), ci = Math.round((r.lat - lat0) / step), cj = Math.round((r.lon - lon0) / step), kx = 111 * Math.cos(r.lat * Math.PI / 180);
+    for (let i = Math.max(0, ci - 8); i <= Math.min(rows - 1, ci + 8); i++) for (let j = Math.max(0, cj - 9); j <= Math.min(cols - 1, cj + 9); j++) { const k = i * cols + j; if (score[k] < 0) continue; const dy = (lat0 + i * step - r.lat) * 111, dx = (lon0 + j * step - r.lon) * kx;
+      score[k] += 0.25 * Math.min(1, a * Math.exp(-(dx * dx + dy * dy) / (2 * 16))); } }
+}
+function modelCard() { const M = SEAM || trainSeaModel(); if (!M) return "";
+  if (!M.ready) return `<div class="card"><h3>${I("sparkles")}ذاكرة البحر</h3><p class="fine">تتعلّم من صيداتك (والرحلات بدون صيد) أي ظروف تناسبك. تحتاج 3 صيدات بموقع على الأقل — عندك ${M.n}. لين ذاك الوقت الخريطة تعتمد على بيانات الأقمار فقط.</p></div>`;
+  const conf = M.n + M.nb < 10 ? ["بدائية", "warn"] : M.auc != null && M.auc >= 0.7 ? ["جيدة", "ok"] : ["متوسطة", "info"], tm = todayMatch();
+  return `<div class="card" id="seaModel"><h3>${I("sparkles")}ذاكرة البحر <span class="badge ${conf[1]}">ثقة ${conf[0]}</span></h3>
+    <p class="fine">نموذج انحدار لوجستي يتدرّب على جهازك من ${M.n} صيدة و${M.nb} رحلة بدون صيد و${M.nbg} نقطة بحر عشوائية حولها${M.auc != null ? ` · دقة التمييز (AUC بالتحقق المتقاطع) ${M.auc.toFixed(2)}` : " · نحتاج 8 صيدات لقياس الدقة"}. وزنه في الخريطة الحين ${Math.round(M.w * 100)}٪ ويزيد كل ما زادت بياناتك.</p>
+    <div class="why">${M.imp.slice(0, 4).map((f) => `<div class="w"><span>${f.ar}</span><b>${f.c > 0 ? "يزيد صيدك" : "يقلّل صيدك"}</b>${bar(Math.min(1, Math.abs(f.c) / Math.abs(M.imp[0].c || 1)), f.c > 0 ? "var(--green)" : "var(--orange)")}</div>`).join("")}</div>
+    ${tm != null ? `<div class="note info">${I("clock")}<div>ظروف الحين (قمر/مد/ضغط/ريح/وقت) تطابق نمطك بنسبة <b>${Math.round(tm * 100)}٪</b>.</div></div>` : ""}
+    <p class="fine">${I("lock")}النموذج محفوظ مشفّر مثل نقاطك. علاقة إحصائية من سجلّك، مو سبب مؤكد.</p></div>`; }
+function blankSheet() { needKey(async () => { await ensureHere(); const pos = here ? { lat: here.lat, lon: here.lon } : map ? { lat: map.getCenter().lat, lon: map.getCenter().lng } : null;
+  const m = openSheet(`<h2>رحلة بدون صيد</h2><div class="meta">${pos ? dm(pos.lat, "N", "S") + " · " + dm(pos.lon, "E", "W") + (here ? " (GPS)" : " (وسط الخريطة)") : "بدون موقع"}</div><p class="fine">تسجيل الرحلات الفاضية يعلّم «ذاكرة البحر» وين وإمتى ما ينفع — بنفس الظروف اللي تنحفظ مع الصيدة.</p>
+    <label class="f">ملاحظات<textarea id="bx" rows="2"></textarea></label><button class="btn primary block" id="bOk">${I("lock")}حفظ مشفّر</button>`);
+  $("#bOk", m).onclick = async () => { if (!pos) return toast("نحتاج موقع"); await saveRec("blank", { lat: pos.lat, lon: pos.lon, t: Date.now(), notes: $("#bx", m).value, ...condRec(pos.lat, pos.lon) }); closeSheet(); afterLearn(); toast("انحفظت الرحلة · الذاكرة تتعلّم"); rerender(); }; }); }
+function condRec(lat, lon) { const cond = condAt(new Date()), ex = lat != null ? explain(lat, lon) : null; return { moon: moon().idx, tide: cond?.tideStage || null, pressure: cond?.pressure ?? null, ptrend: cond?.ptrend ?? null, wind: cond?.wind ?? null, wave: cond?.wave ?? null, sst: ex?.sst ?? cond?.sst ?? null, feat: lat != null ? seaFeat(lat, lon) : null, hour: new Date().getHours() }; }
+function afterLearn() { SEAM = null; recomputeHot(); persistModel(); }
+
 if ("serviceWorker" in navigator && !window.Capacitor?.isNativePlatform?.() && !location.search.includes("nosw")) navigator.serviceWorker.register("sw.js").catch(() => {});
-window.__gf = { enc, dec, unlock, moon, solunar, sunTimes, hourScores, explain, idb, show, get KEY() { return KEY; }, get RECS() { return RECS; }, get map() { return map; }, get OCEAN() { return OCEAN; }, get HOT() { return HOT; }, sync, pointSheet, recSheet, shareCard, startRoute, planNav, startNav, endNav, navFix: onFix, seaRoute, returnToPort, searchSheet, loadNavData, SAID, get NAV() { return NAV; }, get PLAN() { return PLAN; }, get PORTS() { return PORTS; }, simMode(v) { startNav.sim = v; }, navDepth, NP, get POIS() { return POIS; }, fullCtx, candidates, runPlan, saveRec, recomputeHot, ask, fishCard, fishId, runLogSummary, toWav, get CHAT() { return CHAT; }, speak, todayCtx };
+window.__gf = { nearestFront, loadFronts, birdScan, birdSheet, logBird, activeBirds, trainSeaModel, get SEAM() { return SEAM; }, todayMatch, blankSheet, frontSheet, seaFeat, enc, dec, unlock, moon, solunar, sunTimes, hourScores, explain, idb, show, get KEY() { return KEY; }, get RECS() { return RECS; }, get map() { return map; }, get OCEAN() { return OCEAN; }, get HOT() { return HOT; }, sync, pointSheet, recSheet, shareCard, startRoute, planNav, startNav, endNav, navFix: onFix, seaRoute, returnToPort, searchSheet, loadNavData, SAID, get NAV() { return NAV; }, get PLAN() { return PLAN; }, get PORTS() { return PORTS; }, simMode(v) { startNav.sim = v; }, navDepth, NP, get POIS() { return POIS; }, fullCtx, candidates, runPlan, saveRec, recomputeHot, ask, fishCard, fishId, runLogSummary, toWav, get CHAT() { return CHAT; }, speak, todayCtx };
 start();

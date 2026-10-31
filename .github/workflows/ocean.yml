@@ -12,6 +12,7 @@ jobs:
         with: { python-version: "3.12" }
       - run: pip install numpy scipy matplotlib
       - run: python tools/build_ocean.py
+      - run: python tools/build_fronts.py   # «خط الماء»: SST/chl/kd fronts, last 3 days
       - run: |
           git config user.name "ocean-bot"; git config user.email "ocean-bot@users.noreply.github.com"
           git add data/ && (git diff --cached --quiet || (git commit -m "data: daily ocean refresh" && git push))
