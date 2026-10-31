@@ -312,8 +312,8 @@ async function resizePhoto(file) { const img = await createImageBitmap(file); co
   const c = document.createElement("canvas"); c.width = Math.round(img.width * s); c.height = Math.round(img.height * s); c.getContext("2d").drawImage(img, 0, 0, c.width, c.height); return c.toDataURL("image/jpeg", 0.8); }
 function ruleAlerts(species, when = new Date()) { const mo = when.getMonth() + 1, y = when.getFullYear();
   return RULES.filter((r) => r.status === "verified" && r.species.includes(species) && r.months.includes(mo) && !(r.notIn || []).includes(y)); }
-function catchSheet({ lat, lon }) { needKey(() => {
-  let photo = null;
+function catchSheet({ lat, lon, photo: ph0, guess }) { needKey(() => {
+  let photo = ph0 || null;
   const m = openSheet(`<h2>صيدة جديدة</h2><div class="meta">${lat != null ? dm(lat, "N", "S") + " · " + dm(lon, "E", "W") : "بدون موقع"}</div>
     <label class="btn tinted block" style="cursor:pointer">${I("camera")}صورة السمكة<input id="cp" type="file" accept="image/*" capture="environment" hidden></label>
     <img id="cpv" class="photo hidden"><button class="btn sm hidden" id="cAI" style="margin-top:6px">${I("sparkles")}تعرّف عليها بالذكاء الاصطناعي</button><div id="cAIo"></div>
@@ -327,12 +327,12 @@ function catchSheet({ lat, lon }) { needKey(() => {
     $("#cAl", m).innerHTML = ruleAlerts(sp).map((r) => `<div class="note bad">${I("ban")}<div>${esc(r.text)} <a href="${r.src[0]}" target="_blank">المصدر</a></div></div>`).join("") +
       RULES.filter((r) => r.status === "confirm" && r.species.includes(sp)).map((r) => `<div class="note warn">${I("warn")}<div>يحتاج تأكيد: ${esc(r.text)}</div></div>`).join(""); paintIcons(m); };
   $("#cs", m).onchange = upd; upd();
+  const applyGuess = (d) => { $("#cAIo", m).innerHTML = fishCard(d); paintIcons(m); if (d.species && (d.confidence || 0) >= 0.5) { const s = SPECIES.find((x) => x.ar === d.species || x.ar.startsWith(d.species) || d.species.startsWith(x.ar)); if (s) { $("#cs", m).value = s.id; upd(); } } };
+  if (photo) { $("#cpv", m).src = photo; $("#cpv", m).classList.remove("hidden"); $("#cAI", m).classList.remove("hidden"); } if (guess) applyGuess(guess);
   $("#cp", m).onchange = async (e) => { const f = e.target.files[0]; if (!f) return; photo = await resizePhoto(f); $("#cpv", m).src = photo; $("#cpv", m).classList.remove("hidden"); $("#cAI", m).classList.remove("hidden"); };
   $("#cAI", m).onclick = async () => { if (!navigator.onLine) return toast("التعرّف يحتاج اتصال"); const b = $("#cAI", m); b.disabled = true; b.lastChild.textContent = "جاري التحليل…";
-    try { const r = await ai({ action: "fishid", image: photo }); const d = r.data;
-      $("#cAIo", m).innerHTML = `<div class="note info">${I("sparkles")}<div><b>${esc(d.common_name_ar || "")}</b> ${d.scientific_guess ? `<i dir="ltr">${esc(d.scientific_guess)}</i>` : ""} · ثقة ${Math.round((d.confidence || 0) * 100)}٪<br>${esc(d.notes || "")}<br><small>تقدير من الذكاء الاصطناعي، تأكد بنفسك.</small></div></div>`;
-      if (d.species && (d.confidence || 0) >= 0.5) { const s = SPECIES.find((x) => x.ar === d.species || x.ar.startsWith(d.species)); if (s) { $("#cs", m).value = s.id; upd(); } } }
-    catch (e) { $("#cAIo", m).innerHTML = `<div class="note warn">${I("warn")}<div>تعذّر التعرّف: ${esc(e.message)}</div></div>`; } b.disabled = false; b.lastChild.textContent = "تعرّف عليها بالذكاء الاصطناعي"; };
+    try { const d = (await ai({ action: "fishid", image: photo })).data || {}; applyGuess(d); }
+    catch (e) { $("#cAIo", m).innerHTML = `<div class="note warn">${I("warn")}<div>تعذّر التعرّف: ${esc(AIERR(e))}</div></div>`; } b.disabled = false; b.lastChild.textContent = "تعرّف عليها بالذكاء الاصطناعي"; };
   $("#cOk", m).onclick = async () => { const n = (id) => { const v = parseFloat($(id, m).value); return isNaN(v) ? null : v; };
     const cond = condAt(new Date()); const ex = lat != null ? explain(lat, lon) : null;
     await saveRec("catch", { species: $("#cs", m).value, other: $("#co", m).value, length: n("#cl"), weight: n("#cw"), bait: $("#cb", m).value, depth: n("#cd"), released: $("#crel", m).checked, notes: $("#cx", m).value, photo, lat, lon, t: Date.now(),
@@ -444,16 +444,11 @@ async function renderToday() {
     <p class="fine">طريقة جون نايت: الرئيسية ساعة قبل وبعد عبور القمر فوقك وتحتك، والثانوية نص ساعة حول شروقه وغروبه. محسوبة فلكياً لموقعك.</p></div>
   <div class="section-h">${I("cal")}الأيام القادمة</div>
   <div class="list">${days.map((d) => `<div class="row"><div class="m"><b>${dayName(dubai(d.ds + "T12"))}</b><small>أفضل ساعة ${d.b.t.slice(11)} · ${scoreWord(d.b.s, d.b.unsafe)}</small></div><span class="val" style="color:${scoreColor(d.b.s, d.b.unsafe)};font-weight:700">${d.b.s}</span></div>`).join("")}</div>
-  <div class="section-h">${I("sparkles")}نصيحة ذكية</div>
-  <div class="card"><div id="adv"><p class="fine" style="margin:0 0 10px">تحليل بالذكاء الاصطناعي لأرقام اليوم (الطقس والمد والقمر وسجلّك). يحتاج اتصال.</p><button class="btn tinted" id="advBtn">${I("sparkles")}اسأل عن خطة اليوم</button></div></div>
+  <div class="ai-teaser card"><div class="ai-orb sm">${I("sparkles")}</div><div class="m"><b>المساعد الذكي</b><small>خطة اليوم: أفضل بقعة ووقت ومسار، أو اسأل بصوتك</small></div><button class="btn primary sm" id="advBtn">${I("route")}خطة اليوم</button><button class="btn tinted sm" id="askBtn">${I("mic")}اسأل</button></div>
   <p class="fine">المصادر: Open-Meteo (طقس وموج ومد نموذجي)، حسابات فلكية محلية. آخر تحديث ${hm(WX.t)}. ${navigator.onLine ? "" : "· غير متصل، بيانات محفوظة."}</p>`;
   bindPick(v); paintIcons(v);
   requestAnimationFrame(() => $$(".gauge circle[data-off]", v).forEach((c) => c.style.strokeDashoffset = c.dataset.off));
-  $("#advBtn", v).onclick = async () => { if (!navigator.onLine) return toast("يحتاج اتصال"); const b = $("#advBtn", v); b.disabled = true; b.lastChild.textContent = "جاري التحليل…";
-    try { const catches = RECS.filter((x) => x.kind === "catch").slice(-30).map((c) => ({ species: spName(c.species, c.other), t: new Date(c.t).toISOString(), moon: c.moon, tide: c.tide, depth: c.depth }));
-      const j = await ai({ action: "advice", ctx: { place: at.name, now: r, score: cur.s, pressure_trend_3h: d3, tide: ts, tide_extrema: ext, solunar: sol.map((s) => ({ k: s.k, start: s.start, end: s.end })), moon: mo.name, sunrise: sun.sunrise, sunset: sun.sunset, limits: P0, catches } });
-      $("#adv", v).innerHTML = `<div style="white-space:pre-wrap;line-height:1.7">${esc(j.text || j.data?.text || JSON.stringify(j.data || j))}</div><p class="fine">من الذكاء الاصطناعي، تحقق قبل ما تعتمد عليه.</p>`; }
-    catch (e) { $("#adv", v).insertAdjacentHTML("beforeend", `<div class="note warn">${I("warn")}<div>${esc(e.message)}</div></div>`); paintIcons(v); b.disabled = false; b.lastChild.textContent = "حاول مرة ثانية"; } };
+  $("#advBtn", v).onclick = () => { show("ai"); runPlan(); }; $("#askBtn", v).onclick = () => { show("ai"); setTimeout(() => $("#aQ")?.focus(), 200); };
 }
 function bindPick(v) { $$(".chips .chip[data-n]", v).forEach((c) => c.onclick = () => { haptic(5);
   if (c.dataset.n === "موقعي" && !c.dataset.lat) { locate(false).then(() => { if (here) { AT = { ...here, name: "موقعي" }; WX = null; renderToday(); } else toast("ما قدرت أحدد موقعك"); }); return; }
@@ -485,7 +480,7 @@ function routeSheet() {
   $("#rtSave", m).onclick = () => needKey(async () => { const name = prompt("اسم المسار", "مسار " + new Date().toLocaleDateString("ar-AE")); if (name == null) return;
     await saveRec("route", { name, pts: ROUTE.pts, km: c.km, t: Date.now() }); ROUTE.on = false; closeSheet(); toast("انحفظ المسار مشفّر"); rerender(); });
 }
-async function wake(on) { try { if (on && "wakeLock" in navigator) { TRACK.lock = await navigator.wakeLock.request("screen"); } else if (!on && TRACK.lock) { await TRACK.lock.release(); TRACK.lock = null; } } catch {} }
+async function wake(on) { try { if (window.GFNative?.keepAwake) return await window.GFNative.keepAwake(on); if (on && "wakeLock" in navigator) { TRACK.lock = await navigator.wakeLock.request("screen"); } else if (!on && TRACK.lock) { await TRACK.lock.release(); TRACK.lock = null; } } catch {} }
 function toggleTrack() {
   if (!navigator.geolocation) return toast("الموقع غير متاح");
   if (TRACK.on) { navigator.geolocation.clearWatch(TRACK.watch); TRACK.on = false; wake(false); haptic([10, 40, 10]);
@@ -567,7 +562,7 @@ function renderLog() {
   const hours = Array(24).fill(0); cs.forEach((c) => hours[+new Date(c.t).toLocaleString("en-GB", { hour: "2-digit", hour12: false, timeZone: "Asia/Dubai" }) % 24]++); const mh = Math.max(1, ...hours);
   const moons = Array(8).fill(0); cs.forEach((c) => c.moon != null && moons[c.moon]++); const mm = Math.max(1, ...moons);
   const kg = cs.reduce((a, c) => a + (c.weight || 0), 0);
-  v.innerHTML = `<h1 class="large-title">سجلّي</h1><p class="subtitle">مشفّر على جهازك · ${navigator.onLine ? "متزامن" : "بيتزامن لما يرجع النت"}</p>
+  v.innerHTML = `<h1 class="large-title">سجلّي</h1><p class="subtitle">مشفّر على جهازك · ${navigator.onLine ? "متزامن" : "بيتزامن لما يرجع النت"}</p><button class="btn tinted block" id="lsum">${I("sparkles")}لخّص سجلّي بالذكاء الاصطناعي</button><div id="lsumOut"></div>
   <div class="actions" style="margin:0 0 14px"><button class="btn primary sm" id="addC">${I("plus")}صيدة</button><button class="btn sm" id="addS">${I("star")}نقطة من موقعي</button><button class="btn sm" id="exp">${I("share")}GPX</button></div>
   <div class="grid g3"><div class="tile" style="min-height:0"><span class="lbl">${I("fish")}صيدات</span><span class="stat-big">${cs.length}</span></div><div class="tile" style="min-height:0"><span class="lbl">${I("star")}نقاط</span><span class="stat-big">${sp.length}</span></div><div class="tile" style="min-height:0"><span class="lbl">${I("chart")}كجم</span><span class="stat-big">${fmt(kg, 1)}</span></div></div>
   ${cs.length ? `<div class="section-h">${I("sparkles")}أفضل ظروفك (من سجلّك)</div>${learned(cs)}
@@ -580,7 +575,7 @@ function renderLog() {
   <div class="list">${cs.map((c) => `<div class="row tap" data-id="${c.id}">${c.photo ? `<img src="${c.photo}" style="width:48px;height:48px;border-radius:12px;object-fit:cover">` : ic("fish", "var(--blue)")}<div class="m"><b>${esc(spName(c.species, c.other))}${c.length ? ` · ${c.length} سم` : ""}${c.weight ? ` · ${c.weight} كجم` : ""}</b><small>${new Date(c.t).toLocaleString("ar-AE", { dateStyle: "medium", timeStyle: "short" })}${c.bait ? " · " + esc(c.bait) : ""}${c.released ? " · رجّعتها" : ""}</small></div>${I("chev", "chev")}</div>`).join("") || `<div class="row"><div class="m"><small>ما سجّلت صيدات للحين. اضغط على الخريطة أو «صيدة».</small></div></div>`}</div>
   <div class="section-h">${I("star")}نقاطي الخاصة</div>
   <div class="list">${sp.map((s) => `<div class="row tap" data-id="${s.id}">${ic("star", "var(--orange)")}<div class="m"><b>${esc(s.name)}</b><small>${dm(s.lat, "N", "S")} · ${dm(s.lon, "E", "W")}</small></div>${I("chev", "chev")}</div>`).join("") || `<div class="row"><div class="m"><small>ما في نقاط.</small></div></div>`}</div>`;
-  paintIcons(v);
+  paintIcons(v); $("#lsum", v).onclick = () => runLogSummary($("#lsumOut", v));
   $$(".row[data-id]", v).forEach((el) => el.onclick = () => { const r = RECS.find((x) => x.id === el.dataset.id); if (r?.lat != null) { show("map"); map.jumpTo({ center: [r.lon, r.lat], zoom: 11 }); } recSheet(r); });
   $("#addC", v).onclick = () => locate(false).then((h) => catchSheet(h || { lat: null, lon: null }));
   $("#addS", v).onclick = () => locate(false).then((h) => h ? spotSheet(h) : toast("ما قدرنا نحدد موقعك، اضغط على الخريطة بدال"));
@@ -693,7 +688,7 @@ async function logout() { if (!confirm("خروج؟ النسخة المحلية �
 let VIEW = "map";
 function show(v) { VIEW = v; $$("#tabbar button").forEach((b) => b.classList.toggle("on", b.dataset.v === v)); $$(".view").forEach((x) => x.classList.toggle("hidden", x.id !== "v-" + v));
   if (!(v === "map" && ROUTE.on)) closeSheet(); rerender(); if (v === "map" && map) requestAnimationFrame(() => map.resize()); }
-function rerender() { ({ today: renderToday, trip: renderTrip, log: renderLog, more: renderMore }[VIEW] || (() => {}))(); }
+function rerender() { ({ today: renderToday, trip: renderTrip, ai: renderAI, log: renderLog, more: renderMore }[VIEW] || (() => {}))(); }
 $$("#tabbar button").forEach((b) => b.onclick = () => { haptic(5); show(b.dataset.v); });
 async function netState() { const n = $("#net"), q = $("#queue"); if (!n) return; n.className = "status" + (navigator.onLine ? "" : " off"); n.textContent = navigator.onLine ? "متصل" : "بدون نت"; q.className = "status q";
   const pend = (await idb.all().catch(() => [])).filter((r) => r.dirty).length; q.classList.toggle("hidden", !pend); q.textContent = pend ? `${pend} بانتظار المزامنة` : ""; }
@@ -856,7 +851,7 @@ function planSheet() { const { dest, origin, R } = PLAN, p = NP(), c = R.pts ? r
 /* ---- navigation mode ---- */
 let NAV = { on: false, voice: localStorage.getItem("gf_voice") !== "0" };
 const SAID = [];
-function say(t) { SAID.push(t); NAV.prompt = t; if (!NAV.voice || !("speechSynthesis" in window)) return; try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(t); u.lang = "ar-SA"; const v = speechSynthesis.getVoices().find((x) => x.lang?.toLowerCase().startsWith("ar")); if (v) u.voice = v; speechSynthesis.speak(u); } catch {} }
+function say(t) { SAID.push(t); NAV.prompt = t; if (NAV.voice) speak(t); }
 const nmTxt = (km) => { const nm = km / 1.852; return units().dist === "nm" ? (nm < 0.3 ? `${Math.round(km * 1000)} متر` : `${nm.toFixed(1)} ميل بحري`) : (km < 1 ? `${Math.round(km * 1000)} متر` : `${km.toFixed(1)} كيلو`); };
 function legPhrase(from, i) { const b = NAV.R.pts[i], d = Math.round(brg(from, b)); return `اتجه ${dirName(d)}، ${d} درجة، لمسافة ${nmTxt(haversine(from, b))}`; }
 let boatM = null;
@@ -902,7 +897,7 @@ function renderHud() { const h = $("#navHud"); if (!h || !NAV.on) return; const 
     <div class="hud-bot glass">${NAV.prompt ? `<div class="hud-say">${I("vol")} <span>${esc(NAV.prompt)}</span></div>` : ""}<div class="hud-stats"><div><b dir="ltr">${hmLtr(eta)}</b><small>الوصول</small></div><div><b>${U.dist(km)}</b><small>المتبقي</small></div><div><b dir="ltr">${f.sog != null ? f.sog.toFixed(1) : "—"}</b><small>عقدة SOG</small></div></div>
       <div class="hud-btns"><button class="round glass" id="hVoice" aria-label="الصوت">${I(NAV.voice ? "vol" : "mute")}</button><button class="round glass" id="hFollow" aria-label="تتبّع">${I("location")}</button><button class="btn sm" id="hHome">${I("home")}رجوع للميناء</button><button class="btn danger sm" id="hEnd">إنهاء</button></div>
       <p class="fine hud-fine">مساعد تقديري · لا يغني عن الخرائط البحرية الرسمية</p></div>`;
-  $("#hEnd").onclick = () => endNav("انتهت الملاحة"); $("#hVoice").onclick = () => { NAV.voice = !NAV.voice; localStorage.setItem("gf_voice", NAV.voice ? "1" : "0"); if (!NAV.voice) try { speechSynthesis.cancel(); } catch {} renderHud(); };
+  $("#hEnd").onclick = () => endNav("انتهت الملاحة"); $("#hVoice").onclick = () => { NAV.voice = !NAV.voice; localStorage.setItem("gf_voice", NAV.voice ? "1" : "0"); if (!NAV.voice) stopSpeak(); renderHud(); };
   $("#hFollow").onclick = () => { NAV.follow = true; if (NAV.last) map.easeTo({ center: [NAV.last.lon, NAV.last.lat], zoom: 13 }); }; $("#hHome").onclick = returnToPort; }
 function returnToPort() { const f = NAV.last || here; if (!f) { toast("ننتظر GPS"); return; } loadNavData().then(() => {
   const c = PORTS.map((x) => ({ ...x, d: haversine(f, x) })).sort((a, b) => a.d - b.d).slice(0, 5).map((x) => ({ x, R: seaRoute(f, { lat: x.lat, lon: x.lon, n: x.n }) })).filter((y) => y.R.pts).sort((a, b) => a.R.km - b.R.km)[0];
@@ -918,6 +913,150 @@ function bindLongPress() { const el = map.getCanvasContainer(); let t = null, s 
   map.on("contextmenu", (e) => { if (NAV.on) return; e.preventDefault?.(); LP = Date.now(); planNav({ lat: e.lngLat.lat, lon: e.lngLat.lng, n: `نقطة ${e.lngLat.lat.toFixed(3)}, ${e.lngLat.lng.toFixed(3)}`, k: "pin" }); });
   map.on("dragstart", () => { if (NAV.on) NAV.follow = false; }); }
 
-if ("serviceWorker" in navigator && !location.search.includes("nosw")) navigator.serviceWorker.register("sw.js").catch(() => {});
-window.__gf = { enc, dec, unlock, moon, solunar, sunTimes, hourScores, explain, idb, show, get KEY() { return KEY; }, get RECS() { return RECS; }, get map() { return map; }, get OCEAN() { return OCEAN; }, get HOT() { return HOT; }, sync, pointSheet, recSheet, shareCard, startRoute, planNav, startNav, endNav, navFix: onFix, seaRoute, returnToPort, searchSheet, loadNavData, SAID, get NAV() { return NAV; }, get PLAN() { return PLAN; }, get PORTS() { return PORTS; }, simMode(v) { startNav.sim = v; }, navDepth, NP, get POIS() { return POIS; } };
+/* ================= AI assistant (Gemini via owner-only Edge Function; estimates, never invented facts) ================= */
+Object.assign(P, {
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+  send: '<path d="M21 3 3 10.5l7 2.5 2.5 7z"/><path d="m10 13 4-4"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
+  bot: '<rect x="4" y="7" width="16" height="12" rx="4"/><path d="M12 3v4M9 12h.01M15 12h.01M9.5 16h5"/>',
+});
+const AIERR = (e) => { const m = String(e?.message || e); return m === "unauthorized" ? "جلستك انتهت أو مو مصرّح لها بالذكاء الاصطناعي. سجّل خروج ودخول من جديد."
+  : m === "ai_unavailable" ? "خدمة الذكاء الاصطناعي مشغولة الحين، حاول بعد شوي." : /fetch|network|Failed/i.test(m) ? "ما فيه اتصال بالخدمة." : m; };
+// one Arabic TTS path for nav prompts and assistant answers: native plugin in the APK, Web Speech in the browser
+function speak(t) { try { const N = window.GFNative; if (N?.tts) return N.tts(t);
+  if (!("speechSynthesis" in window)) return; speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(t); u.lang = "ar-SA"; const v = speechSynthesis.getVoices().find((x) => x.lang?.toLowerCase().startsWith("ar")); if (v) u.voice = v; speechSynthesis.speak(u); } catch {} }
+function stopSpeak() { try { window.GFNative?.ttsStop ? window.GFNative.ttsStop() : speechSynthesis.cancel(); } catch {} }
+
+// ---- context the assistant sees: only numbers the app already computed (no secrets, no raw vault) ----
+function aiOrigin() { if (here) return { lat: here.lat, lon: here.lon, n: "موقعي" }; const c = defAt();
+  const p = PORTS.map((x) => ({ ...x, d: haversine(c, x) })).sort((a, b) => a.d - b.d)[0]; return p ? { lat: p.lat, lon: p.lon, n: p.n } : { lat: c.lat, lon: c.lon, n: c.name }; }
+async function ensureHere() { if (!here) await Promise.race([locate(false), new Promise((r) => setTimeout(r, 6000))]).catch(() => {}); }
+const verifiedRules = () => RULES.filter((r) => r.status === "verified").map((r) => ({ text: r.text, species: r.species.map((s) => spName(s)), months: r.months, source: r.src?.[0] }));
+function nearName(p) { const s = RECS.filter((r) => r.kind === "spot" && r.lat != null).map((r) => ({ n: r.name, d: haversine(p, r) })).sort((a, b) => a.d - b.d)[0];
+  if (s && s.d < 3) return s.n; const q = POIS.filter((x) => x.k !== "island" && x.n).map((x) => ({ n: x.n, d: haversine(p, x) })).sort((a, b) => a.d - b.d)[0]; return q && q.d < 5 ? `قرب ${q.n}` : `${p.lat.toFixed(2)}, ${p.lon.toFixed(2)}`; }
+const catchBrief = (cs) => cs.map((c) => { const d = new Date(c.t); return { species: spName(c.species, c.other), date: d.toISOString().slice(0, 10), hour_dubai: +d.toLocaleString("en-GB", { hour: "2-digit", hour12: false, timeZone: "Asia/Dubai" }),
+  moon: c.moon != null ? MOON8[c.moon] : null, tide: c.tide, pressure: c.pressure, ptrend_3h: c.ptrend, wind_kmh: c.wind, wave_m: c.wave, sst_c: c.sst, depth_m: c.depth, length_cm: c.length, weight_kg: c.weight, bait: c.bait || null, released: !!c.released,
+  area: c.lat != null ? nearName(c) : null }; });
+async function todayCtx() { const at = defAt(); if (!WX || WX.at.lat !== at.lat || WX.at.lon !== at.lon) WX = (await loadWx(at)) || WX; if (!WX) return { place: at.name, offline_weather: true };
+  const rows = WX.rows, ci = curIdx(WX), r = rows[ci], day = r.t.slice(0, 10), hs = hourScores(WX, at, day), now = new Date(), sun = sunTimes(now, at.lat, at.lon), mo = moon(now);
+  const tom = hourScores(WX, at, new Date(+dubai(day + "T12") + 864e5).toISOString().slice(0, 10));
+  return { place: at.name, now_dubai: r.t, conditions: { air_c: r.temp, sst_c: r.sst, wind_kmh: r.wind, gust_kmh: r.gust, wind_dir: dirName(r.dir), wave_m: r.wave, pressure_hpa: r.p, pressure_trend_3h: rows[ci - 3]?.p != null ? +(r.p - rows[ci - 3].p).toFixed(1) : null, weather: WCODE(r.code) },
+    tide_now: tideStage(rows, ci), tide_next: tideExtrema(rows.slice(ci, ci + 30)).slice(0, 4).map((x) => ({ at: x.t.slice(11, 16), type: x.hi ? "مد عالي" : "جزر", level_m: x.v })),
+    moon: mo.name, sunrise: hmLtr(sun.sunrise), sunset: hmLtr(sun.sunset),
+    hours_today: hs.filter((h) => h.t >= r.t.slice(0, 13)).map((h) => ({ t: h.t.slice(11, 16), score: h.s, unsafe: h.unsafe, solunar: h.inMaj ? "رئيسية" : h.inMin ? "ثانوية" : "" })),
+    best_tomorrow: tom.length ? (({ t, s, unsafe }) => ({ t, score: s, unsafe }))(tom.reduce((a, x) => x.s > a.s ? x : a)) : null,
+    user_limits: { max_wind_kmh: prefs().wind, max_wave_m: prefs().wave, depth_range_m: [prefs().dmin, prefs().dmax], boat_speed_kn: prefs().speed, fuel_lph: prefs().lph },
+    sources: "Open-Meteo للطقس والموج والمد النموذجي؛ حسابات فلكية محلية للقمر والشمس؛ الدرجة من معادلة التطبيق" }; }
+// candidate spots: saved spots + hotspot peaks + charted reefs/wrecks, each with a real sea route from the origin
+async function candidates(o, n = 6) { await loadNavData(); if (!HOT) recomputeHot(); const L = [];
+  RECS.filter((r) => r.kind === "spot" && r.lat != null).forEach((r) => L.push({ id: "s" + r.id, name: r.name || "نقطتي", kind: "نقطتي", lat: r.lat, lon: r.lon }));
+  POIS.filter((p) => ["reef", "wreck"].includes(p.k)).forEach((p, k) => L.push({ id: "p" + k, name: p.n || `${POI_AR[p.k]} ${p.lat.toFixed(2)}, ${p.lon.toFixed(2)}`, kind: POI_AR[p.k], lat: p.lat, lon: p.lon }));
+  if (HOT && OCEAN) { const { rows, cols, step, lat0, lon0 } = OCEAN, peaks = [];
+    for (let i = 1; i < rows - 1; i++) for (let j = 1; j < cols - 1; j++) { const s = HOT.score[i * cols + j]; if (s < HOT.p98) continue; let mx = true;
+      for (let a = -1; a <= 1 && mx; a++) for (let b = -1; b <= 1; b++) if ((a || b) && HOT.score[(i + a) * cols + j + b] > s) { mx = false; break; } if (mx) peaks.push({ lat: lat0 + i * step, lon: lon0 + j * step, s }); }
+    peaks.sort((a, b) => b.s - a.s).forEach((p, k) => L.push({ id: "h" + k, name: `بقعة مرجّحة ${p.lat.toFixed(2)}, ${p.lon.toFixed(2)}`, kind: "بقعة مرجّحة", lat: p.lat, lon: p.lon })); }
+  const near = L.map((x) => ({ ...x, km: haversine(o, x) })).filter((x) => x.km < 70).map((x) => ({ ...x, ex: explain(x.lat, x.lon) }))
+    .map((x) => ({ ...x, rank: (x.ex?.pct ?? 30) + (x.kind === "نقطتي" ? 15 : 0) - x.km * 0.6 })).sort((a, b) => b.rank - a.rank).slice(0, n * 2);
+  const out = []; for (const x of near) { if (out.length >= n) break; const R = seaRoute(o, x); if (!R.pts) continue; const c = routeCalc(R.pts);
+    out.push({ id: x.id, name: x.name, kind: x.kind, lat: +x.lat.toFixed(4), lon: +x.lon.toFixed(4), hotspot_pct: x.ex?.pct ?? null, hotspot_score: x.ex ? Math.round(x.ex.s * 100) : null, depth_m: x.ex?.d ?? null, sst_c: x.ex?.sst ?? null, chlorophyll: x.ex?.chl ?? null,
+      near_structure: x.ex?.near ? `${x.ex.near.n || POI_AR[x.ex.near.k]} (${x.ex.near.km.toFixed(1)} كم)` : null, my_catches_within_10km: x.ex?.nc ?? 0,
+      route_nm: +(R.km / 1.852).toFixed(1), route_eta_min: c.h != null ? Math.round(c.h * 60) : null, route_fuel_l: c.fuel != null ? Math.round(c.fuel) : null, route_min_depth_m: R.minD, route_has_unverified_legs: !!R.hz?.length, _R: R }); }
+  return out; }
+async function fullCtx(withCands) { const o = aiOrigin(), base = await todayCtx(); const cs = RECS.filter((x) => x.kind === "catch").sort((a, b) => b.t - a.t).slice(0, 25);
+  const ctx = { ...base, origin: o.n, selected_spot: AT ? { name: AT.name, lat: AT.lat, lon: AT.lon, hotspot: explain(AT.lat, AT.lon)?.pct ?? null } : null,
+    my_spots: RECS.filter((r) => r.kind === "spot" && r.lat != null).slice(0, 20).map((r) => ({ name: r.name, km_from_origin: +haversine(o, r).toFixed(1), depth_m: depthAt(r.lat, r.lon) })),
+    my_recent_catches: catchBrief(cs), navigation: { draft_m: NP().draft, margin_m: NP().margin, hazard_buffer_m: NP().hz, active: NAV.on ? { to: NAV.dest?.n, remaining_km: NAV.last ? +remainKm(NAV.last).toFixed(1) : null } : null },
+    verified_rules: verifiedRules(), vault_locked: !KEY };
+  if (withCands) ctx.candidates = (await candidates(o)).map(({ _R, ...c }) => c);
+  return ctx; }
+
+// ---- view ----
+let CHAT = [], AIPLAN = null, REC = null;
+function bubble(m) { if (m.role === "user") return `<div class="msg mine">${m.voice ? I("mic") : ""}${esc(m.text)}</div>`;
+  if (m.err) return `<div class="msg bot err">${I("warn")} ${esc(m.text)}</div>`;
+  if (m.wait) return `<div class="msg bot wait"><span class="dots"><i></i><i></i><i></i></span>${esc(m.text || "")}</div>`;
+  return `<div class="msg bot"><div>${esc(m.text)}</div>${m.spot || m.window ? `<div class="msg-tags">${m.spot ? `<span class="tag">${I("pin")}${esc(m.spot)}</span>` : ""}${m.window ? `<span class="tag" dir="auto">${I("clock")}${esc(m.window)}</span>` : ""}</div>` : ""}<div class="msg-act"><button class="mini" data-say="${CHAT.indexOf(m)}">${I("vol")}اسمع</button>${(m.follow || []).map((f) => `<button class="mini fu">${esc(f)}</button>`).join("")}</div></div>`; }
+function renderChat() { const c = $("#chat"); if (!c) return; c.innerHTML = CHAT.length ? CHAT.map(bubble).join("") : `<div class="chat-empty">${I("bot")}<b>اسألني عن الصيد اليوم</b><small>أجاوب من أرقام التطبيق: الطقس والمد والقمر والبقع وسجلّك. وما أخترع أنظمة أو نصايح طُعم بدون مصدر.</small>
+    <div class="chips" style="justify-content:center">${["وين أروح اليوم وإيمتى؟", "الجو يسمح أطلع العصر؟", "شو أحسن بقعة قريبة مني؟", "شو اللي يتكرر في صيداتي؟"].map((q) => `<button class="chip fu">${q}</button>`).join("")}</div></div>`;
+  paintIcons(c); $$(".fu", c).forEach((b) => b.onclick = () => ask(b.textContent)); $$("[data-say]", c).forEach((b) => b.onclick = () => speak(CHAT[+b.dataset.say].text));
+  requestAnimationFrame(() => { const v = $("#v-ai"); v.scrollTop = v.scrollHeight; }); }
+function renderAI() { const v = $("#v-ai"); if (!v) return;
+  v.innerHTML = `<div class="ai-hero"><div class="ai-orb">${I("sparkles")}</div><h1>المساعد الذكي</h1><p>Gemini عبر خادم خاص بحسابك · تقديرات وليست ضمان</p></div>
+    <div class="ai-actions"><button class="ai-act" id="aPlan">${ic("route", "linear-gradient(135deg,#0a84ff,#5e5ce6)")}<b>خطة اليوم</b><small>أفضل بقعة ووقت ومسار</small></button>
+      <button class="ai-act" id="aFish">${ic("camera", "linear-gradient(135deg,#30d158,#0a84ff)")}<b>تعرّف على سمكة</b><small>من صورة</small><input id="aFishIn" type="file" accept="image/*" capture="environment" hidden></button>
+      <button class="ai-act" id="aLog">${ic("chart", "linear-gradient(135deg,#ff9f0a,#ff375f)")}<b>لخّص سجلّي</b><small>أنماط صيداتك</small></button></div>
+    <div id="aiPlan"></div><div id="aiFishOut"></div><div id="aiLogOut"></div>
+    <div class="section-h">${I("bot")}المحادثة</div><div id="chat" class="chat"></div><div style="height:96px"></div>
+    <div class="composer glass"><button class="round mic" id="aMic" aria-label="سؤال صوتي">${I("mic")}</button><input id="aQ" placeholder="اسأل… مثلاً: وين أروح العصر؟" enterkeyhint="send"><button class="round send" id="aSend" aria-label="إرسال">${I("send")}</button></div>`;
+  paintIcons(v); renderChat(); if (AIPLAN) planCard(AIPLAN);
+  $("#aSend", v).onclick = () => { const q = $("#aQ").value.trim(); if (q) { $("#aQ").value = ""; ask(q); } }; $("#aQ", v).onkeydown = (e) => { if (e.key === "Enter") $("#aSend").click(); };
+  $("#aMic", v).onclick = toggleRec; $("#aPlan", v).onclick = runPlan; $("#aLog", v).onclick = () => runLogSummary($("#aiLogOut"));
+  $("#aFish", v).onclick = (e) => { if (e.target.id !== "aFishIn") $("#aFishIn").click(); };
+  $("#aFishIn", v).onchange = async (e) => { const f = e.target.files[0]; if (!f) return; const ph = await resizePhoto(f); fishId(ph, $("#aiFishOut"), true); }; }
+async function ask(q, audio) {
+  if (!navigator.onLine) return toast("المساعد يحتاج اتصال"); const hist = CHAT.filter((m) => !m.wait && !m.err).slice(-10).map((m) => ({ role: m.role, text: m.text }));
+  const um = { role: "user", text: q || "🎙️ …", voice: !!audio }; CHAT.push(um, { role: "bot", wait: true, text: audio ? "أسمع سؤالك…" : "" }); renderChat();
+  try { await ensureHere(); const context = await fullCtx(/وين|بقع|مكان|أروح|اروح|اطلع|أطلع|قريب/.test(q || "") || !!audio); const j = await ai(audio ? { action: "voice", audio, history: hist, context } : { action: "chat", question: q, history: hist, context }); const d = j.data || {};
+    if (audio) um.text = d.transcript || "(ما وضح الصوت)"; CHAT.pop(); CHAT.push({ role: "bot", text: d.answer || "—", spot: d.spot, window: d.window, follow: (d.follow_ups || []).slice(0, 3) });
+    if (audio && d.answer) speak(d.answer); }
+  catch (e) { CHAT.pop(); CHAT.push({ role: "bot", err: true, text: AIERR(e) }); } renderChat(); }
+// ---- voice question: record → 16 kHz mono WAV → Gemini transcribes + answers (works in browsers and the Android WebView) ----
+async function toggleRec() { const b = $("#aMic"); if (REC) { REC.stop(); return; }
+  if (!navigator.mediaDevices?.getUserMedia) return toast("المايك غير مدعوم هنا"); let st;
+  try { st = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } }); } catch { return toast("اسمح بالمايك من الإعدادات"); }
+  stopSpeak(); const mr = new MediaRecorder(st), parts = []; REC = mr; b.classList.add("rec"); b.innerHTML = I("stop"); haptic(10); const t0 = Date.now(), cap = setTimeout(() => mr.state === "recording" && mr.stop(), 30000);
+  mr.ondataavailable = (e) => e.data.size && parts.push(e.data);
+  mr.onstop = async () => { clearTimeout(cap); st.getTracks().forEach((t) => t.stop()); REC = null; b.classList.remove("rec"); b.innerHTML = I("mic"); haptic(6);
+    if (Date.now() - t0 < 700) return toast("اضغط، تكلّم، واضغط مرة ثانية"); try { ask(null, await toWav(new Blob(parts, { type: mr.mimeType }))); } catch { toast("ما قدرت أقرا التسجيل"); } };
+  mr.start(); toast("أسمعك… اضغط مرة ثانية لما تخلص"); }
+async function toWav(blob) { const ac = new (window.AudioContext || window.webkitAudioContext)(), buf = await ac.decodeAudioData(await blob.arrayBuffer()); ac.close?.();
+  const sr = 16000, n = Math.ceil(buf.duration * sr), off = new OfflineAudioContext(1, n, sr), src = off.createBufferSource(); src.buffer = buf; src.connect(off.destination); src.start(); const pcm = (await off.startRendering()).getChannelData(0);
+  const dv = new DataView(new ArrayBuffer(44 + n * 2)), w = (o, s) => [...s].forEach((c, k) => dv.setUint8(o + k, c.charCodeAt(0)));
+  w(0, "RIFF"); dv.setUint32(4, 36 + n * 2, true); w(8, "WAVEfmt "); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true); dv.setUint32(24, sr, true); dv.setUint32(28, sr * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); w(36, "data"); dv.setUint32(40, n * 2, true);
+  for (let k = 0; k < n; k++) dv.setInt16(44 + k * 2, Math.max(-1, Math.min(1, pcm[k])) * 0x7fff, true);
+  return await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(new Blob([dv], { type: "audio/wav" })); }); }
+// ---- daily AI trip plan: the app computes candidates + real sea routes, the AI only chooses and explains ----
+async function runPlan() { const box = $("#aiPlan"); if (!box) return; if (!navigator.onLine) return toast("الخطة تحتاج اتصال");
+  box.innerHTML = `<div class="card ai-card"><div class="msg bot wait"><span class="dots"><i></i><i></i><i></i></span>أحسب المسارات وأقارن البقع…</div></div>`;
+  try { await ensureHere(); const o = aiOrigin(), base = await fullCtx(false), cands = await candidates(o);
+    if (!cands.length) throw new Error("ما لقيت بقع قريبة بمسار بحري آمن حسب إعداداتك");
+    const j = await ai({ action: "plan", context: { ...base, candidates: cands.map(({ _R, ...c }) => c) } }); AIPLAN = { d: j.data || {}, cands, o, at: Date.now() }; planCard(AIPLAN); }
+  catch (e) { box.innerHTML = `<div class="note warn">${I("warn")}<div>${esc(AIERR(e))}</div></div>`; paintIcons(box); } }
+function planCard({ d, cands, o }) { const box = $("#aiPlan"); if (!box) return; const c = cands.find((x) => x.id === d.spot_id), alt = cands.find((x) => x.id === d.alternative?.spot_id), go = { "نعم": "ok", "بحذر": "warn", "لا": "bad" }[d.go] || "info";
+  box.innerHTML = `<div class="card ai-card"><h3>${I("sparkles")}خطة اليوم من ${esc(o.n)}</h3><div class="note ${go}"><b style="font-size:17px">${esc(d.go || "")}</b><div>${esc(d.headline || "")}</div></div>
+    ${c ? `<div class="plan-spot">${ic("target", "var(--blue)")}<div class="m"><b>${esc(c.name)}</b><small>${c.route_nm} ميل بحري · ${c.route_eta_min ?? "—"} د · أقل عمق ${c.route_min_depth_m ?? "—"} م${c.hotspot_score != null ? ` · ترجيح ${c.hotspot_score}/100` : ""}</small></div><span class="tag big" dir="ltr">${I("clock")}${esc(d.window || "")}</span></div>` : ""}
+    ${(d.why || []).length ? `<div class="section-h" style="margin-top:12px">ليش؟</div><ul class="ai-list">${d.why.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+    ${d.route_note ? `<p class="fine">${I("route")} ${esc(d.route_note)}</p>` : ""}
+    ${(d.plan || []).length ? `<div class="section-h">الجدول</div><ol class="ai-steps">${d.plan.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>` : ""}
+    ${(d.safety || []).map((x) => `<div class="note warn">${I("warn")}<div>${esc(x)}</div></div>`).join("")}
+    ${alt ? `<p class="fine">البديل: <b>${esc(alt.name)}</b> — ${esc(d.alternative.why || "")}</p>` : ""}
+    <div class="grid g2" style="margin-top:10px">${c ? `<button class="btn primary" id="pGo">${I("navi")}ارسم المسار</button>` : ""}<button class="btn tinted" id="pRe">${I("sparkles")}خطة جديدة</button></div>
+    <p class="fine">الأرقام من التطبيق (Open-Meteo، GEBCO، OSM) والاختيار والشرح من الذكاء الاصطناعي. تقدير وليس ضمان، ولا يغني عن الخرائط البحرية الرسمية.</p></div>`;
+  paintIcons(box); if (c) $("#pGo", box).onclick = () => planNav({ lat: c.lat, lon: c.lon, n: c.name, k: "pin" }, here ? null : { lat: o.lat, lon: o.lon, n: o.n }); $("#pRe", box).onclick = runPlan; }
+// ---- fish photo ID with explicit confidence ----
+function fishCard(d) { const cf = clamp(d.confidence || 0), col = cf >= 0.75 ? "var(--green)" : cf >= 0.5 ? "var(--yellow)" : "var(--orange)", alts = (d.alternatives || []).filter((a) => a.name && a.name !== "غير ذلك");
+  return `<div class="fish-res"><div class="fr-h"><b>${esc(d.common_name_ar || d.species || "غير معروف")}</b>${d.scientific_guess ? `<i dir="ltr">${esc(d.scientific_guess)}</i>` : ""}</div>
+    <div class="conf"><span>الثقة</span>${bar(cf, col)}<b>${Math.round(cf * 100)}٪</b></div><small class="conf-w">${cf >= 0.75 ? "ثقة عالية نسبياً" : cf >= 0.5 ? "ثقة متوسطة" : "ثقة ضعيفة، لا تعتمد عليها"}</small>
+    ${(d.features || []).length ? `<ul class="ai-list">${d.features.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+    ${alts.length ? `<p class="fine">احتمالات ثانية: ${alts.map((a) => `${esc(a.name)} (${Math.round((a.confidence || 0) * 100)}٪)`).join("، ")}</p>` : ""}
+    ${d.notes ? `<p class="fine">${esc(d.notes)}</p>` : ""}<div class="note warn">${I("info")}<div>هذا <b>تقدير</b> من الذكاء الاصطناعي من الصورة، وممكن يغلط بين الأنواع المتشابهة. تأكد بنفسك قبل ما تحتفظ بالسمكة أو تسجلها.</div></div></div>`; }
+async function fishId(photo, out, standalone) { if (!navigator.onLine) { toast("التعرّف يحتاج اتصال"); return null; }
+  out.innerHTML = `<div class="card ai-card"><img src="${photo}" class="photo"><div class="msg bot wait"><span class="dots"><i></i><i></i><i></i></span>أحلل الصورة…</div></div>`;
+  try { const d = (await ai({ action: "fishid", image: photo })).data || {}; out.innerHTML = `<div class="card ai-card">${standalone ? `<img src="${photo}" class="photo">` : ""}${fishCard(d)}${standalone ? `<button class="btn tinted block" id="fLog">${I("fish")}سجّلها كصيدة</button>` : ""}</div>`;
+    paintIcons(out); if (standalone) $("#fLog", out).onclick = () => locate(false).then((h) => catchSheet({ ...(h || { lat: null, lon: null }), photo, guess: d })); return d; }
+  catch (e) { out.innerHTML = `<div class="note warn">${I("warn")}<div>تعذّر التعرّف: ${esc(AIERR(e))}</div></div>`; paintIcons(out); return null; } }
+// ---- catch-log smart summary ----
+async function runLogSummary(out) { if (!out) return; if (!KEY) return needKey(() => runLogSummary(out)); const cs = RECS.filter((x) => x.kind === "catch");
+  if (cs.length < 2) { out.innerHTML = `<div class="note info">${I("info")}<div>سجّل صيدتين على الأقل عشان أقدر ألقى أنماط. (عندك ${cs.length})</div></div>`; paintIcons(out); return; }
+  if (!navigator.onLine) return toast("الملخص يحتاج اتصال");
+  out.innerHTML = `<div class="card ai-card"><div class="msg bot wait"><span class="dots"><i></i><i></i><i></i></span>أحلل ${cs.length} صيدة…</div></div>`;
+  try { const d = (await ai({ action: "logsummary", log: catchBrief(cs.sort((a, b) => b.t - a.t).slice(0, 150)) })).data || {}; const S = { "قوي": "var(--green)", "متوسط": "var(--yellow)", "ضعيف": "var(--orange)" };
+    out.innerHTML = `<div class="card ai-card"><h3>${I("sparkles")}ملخص سجلّك (${cs.length} صيدة)</h3><p style="line-height:1.7;margin:0 0 8px">${esc(d.summary || "")}</p>
+      ${(d.patterns || []).map((p) => `<div class="pat"><span class="dot" style="background:${S[p.strength] || "var(--fg2)"}"></span><div><b>${esc(p.text)}</b><small>${esc(p.evidence || "")} · ${esc(p.strength || "")}</small></div></div>`).join("")}
+      ${(d.suggestions || []).length ? `<div class="section-h">اقتراحات من سجلّك</div><ul class="ai-list">${d.suggestions.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+      <p class="fine">${esc(d.caveat || "")} الأنماط من صيداتك أنت فقط، وتتحسن كل ما سجّلت أكثر.</p></div>`; paintIcons(out); }
+  catch (e) { out.innerHTML = `<div class="note warn">${I("warn")}<div>${esc(AIERR(e))}</div></div>`; paintIcons(out); } }
+
+if ("serviceWorker" in navigator && !window.Capacitor?.isNativePlatform?.() && !location.search.includes("nosw")) navigator.serviceWorker.register("sw.js").catch(() => {});
+window.__gf = { enc, dec, unlock, moon, solunar, sunTimes, hourScores, explain, idb, show, get KEY() { return KEY; }, get RECS() { return RECS; }, get map() { return map; }, get OCEAN() { return OCEAN; }, get HOT() { return HOT; }, sync, pointSheet, recSheet, shareCard, startRoute, planNav, startNav, endNav, navFix: onFix, seaRoute, returnToPort, searchSheet, loadNavData, SAID, get NAV() { return NAV; }, get PLAN() { return PLAN; }, get PORTS() { return PORTS; }, simMode(v) { startNav.sim = v; }, navDepth, NP, get POIS() { return POIS; }, fullCtx, candidates, runPlan, saveRec, recomputeHot, ask, fishCard, fishId, runLogSummary, toWav, get CHAT() { return CHAT; }, speak, todayCtx };
 start();

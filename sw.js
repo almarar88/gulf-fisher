@@ -1,5 +1,5 @@
 // Offline: app shell + data stale-while-revalidate; map tiles/styles/fonts cached (capped); APIs left to the app (IndexedDB).
-const V = "gf-v22";
+const V = "gf-v23";
 const SHELL = ["./", "index.html", "styles.css", "app.js", "core.js", "data.js", "config.js", "manifest.json", "data/ocean.json", "data/pois.json", "data/ports.json", "data/navdepth.bin", "data/contours.geojson",
   "vendor/maplibre-gl.js", "vendor/maplibre-gl.css", "vendor/mapbox-gl-rtl-text.min.js", "icons/icon.svg", "icons/icon-192.png", "fonts/fonts.css",
   "fonts/plex-ar-arabic-400.woff2", "fonts/plex-ar-arabic-500.woff2", "fonts/plex-ar-arabic-600.woff2", "fonts/plex-ar-arabic-700.woff2", "fonts/plex-ar-latin-400.woff2", "fonts/plex-ar-latin-600.woff2"];
