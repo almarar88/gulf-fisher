@@ -710,7 +710,7 @@ async function start() {
   $("#login").classList.add("hidden"); $("#app").classList.remove("hidden");
   $("#lockBtn").onclick = () => KEY ? lockVault() : vaultSheet(); lockIcon();
   updateSky(defAt(), null); initMap(); netState();
-  OCEAN = await fetch("data/ocean.json").then((r) => r.json()).catch(() => null);
+  OCEAN = await liveData("data/ocean.json");
   recomputeHot(); loadPois().then(() => { drawPois(); recomputeHot(); });
   if (!KEY) setTimeout(() => vaultSheet(), 500);
   loadWx(defAt()).then((w) => { if (w) { WX = w; updateSky(defAt(), w); } });
@@ -1069,13 +1069,17 @@ async function runLogSummary(out) { if (!out) return; if (!KEY) return needKey((
       <p class="fine">${esc(d.caveat || "")} الأنماط من صيداتك أنت فقط، وتتحسن كل ما سجّلت أكثر.</p></div>`; paintIcons(out); }
   catch (e) { out.innerHTML = `<div class="note warn">${I("warn")}<div>${esc(AIERR(e))}</div></div>`; paintIcons(out); } }
 
+// In the APK, bundled data would freeze at build time: fetch the daily-refreshed copy from GitHub Pages first, fall back to the bundled file offline.
+async function liveData(path) { const get = (u) => fetch(u, { cache: "no-cache" }).then((r) => { if (!r.ok) throw 0; return r.json(); });
+  if (window.Capacitor?.isNativePlatform?.()) { try { return await Promise.race([get("https://almarar88.github.io/gulf-fisher/" + path), new Promise((_, j) => setTimeout(j, 8000))]); } catch {} }
+  return get(path).catch(() => null); }
 /* ================= v5: خط الماء (fronts) · رادار الطيور · ذاكرة البحر ================= */
 const FT_AR = { sst: "حرارة", chl: "كلوروفيل", kd: "عكارة" }, FT_COL = { sst: "#ff453a", chl: "#30d158", kd: "#c08a4a" };
 let FRONTS = null;
-async function loadFronts() { if (FRONTS) return FRONTS; FRONTS = await fetch("data/fronts.geojson").then((r) => r.json()).catch(() => null); return FRONTS; }
+async function loadFronts() { if (FRONTS) return FRONTS; FRONTS = await liveData("data/fronts.geojson"); return FRONTS; }
 const frontsAge0 = (fc, strongOnly) => (fc?.features || []).filter((f) => f.properties.age === 0 && (!strongOnly || f.properties.s !== "ضعيف"));
 function v5Overlays(below) {
-  map.addSource("fronts", { type: "geojson", data: "data/fronts.geojson" });
+  map.addSource("fronts", { type: "geojson", data: FRONTS || { type: "FeatureCollection", features: [] } }); loadFronts().then((f) => f && map.getSource("fronts")?.setData(f));
   const col = ["match", ["get", "t"], "sst", FT_COL.sst, "chl", FT_COL.chl, FT_COL.kd], w = ["match", ["get", "s"], "قوي", 3.2, "متوسط", 2.2, 1.3];
   map.addLayer({ id: "fronts-old", type: "line", source: "fronts", filter: [">", ["get", "age"], 0], paint: { "line-color": col, "line-width": ["*", 0.7, w], "line-opacity": ["match", ["get", "age"], 1, 0.45, 0.25], "line-dasharray": [2, 2] }, layout: { "line-cap": "butt" } }, below);
   map.addLayer({ id: "fronts-case", type: "line", source: "fronts", filter: ["==", ["get", "age"], 0], paint: { "line-color": "#000", "line-width": ["+", 2.5, w], "line-opacity": 0.45 }, layout: { "line-cap": "round", "line-join": "round" } }, below);
