@@ -1,0 +1,17 @@
+name: refresh ocean data
+on:
+  schedule: [{ cron: "30 2 * * *" }]   # daily 06:30 Asia/Dubai
+  workflow_dispatch:
+permissions: { contents: write }
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install numpy scipy matplotlib
+      - run: python tools/build_ocean.py
+      - run: |
+          git config user.name "ocean-bot"; git config user.email "ocean-bot@users.noreply.github.com"
+          git add data/ && (git diff --cached --quiet || (git commit -m "data: daily ocean refresh" && git push))

@@ -3,61 +3,65 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#06243a">
+<meta name="theme-color" content="#0b1d33" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#eaf3fb" media="(prefers-color-scheme: light)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="robots" content="noindex">
 <title>صيّاد الخليج</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="stylesheet" href="fonts/fonts.css">
-<link rel="stylesheet" href="vendor/leaflet.css">
+<link rel="stylesheet" href="vendor/maplibre-gl.css">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<div id="login" class="screen hidden">
-  <div class="login-card">
-    <div class="logo"><img src="icons/icon.svg" alt=""><div><h1>صيّاد الخليج</h1><p>خريطة صيد ذكية لمياه الإمارات</p></div></div>
-    <label>البريد الإلكتروني<input id="em" type="email" autocomplete="username" dir="ltr"></label>
-    <label>كلمة المرور<input id="pw" type="password" autocomplete="current-password" dir="ltr"></label>
-    <button id="loginBtn" class="btn primary">دخول</button>
+<div id="sky" class="sky"></div>
+<div id="login" class="login hidden">
+  <div class="login-card glass">
+    <img class="app-icon" src="icons/icon.svg" alt="">
+    <h1>صيّاد الخليج</h1>
+    <p class="sub">خريطتك وطقسك وسجلّك للصيد في مياه الإمارات</p>
+    <div class="field-group">
+      <input id="em" type="email" autocomplete="username" dir="ltr" placeholder="البريد الإلكتروني">
+      <input id="pw" type="password" autocomplete="current-password" dir="ltr" placeholder="كلمة المرور">
+    </div>
+    <button id="loginBtn" class="btn primary block">تسجيل الدخول</button>
     <p id="loginErr" class="err"></p>
-    <p class="fine">تطبيق خاص. التسجيل مغلق. للتخطيط فقط وليس للملاحة.</p>
+    <p class="foot">تطبيق خاص والتسجيل مقفل. للتخطيط فقط، وليس للملاحة.</p>
   </div>
 </div>
 <div id="app" class="hidden">
-  <header class="top">
-    <div class="brand"><img src="icons/icon.svg" alt=""><b>صيّاد الخليج</b></div>
-    <div class="top-r"><span id="net" class="pill"></span><span id="queue" class="pill hidden"></span><button id="lockBtn" class="icon-btn" title="قفل الخزنة">🔒</button><button id="logoutBtn" class="icon-btn" title="خروج">⎋</button></div>
-  </header>
-  <main>
-    <section id="v-map" class="view">
-      <div id="map"></div>
-      <div class="map-tools">
-        <button class="chip on" data-layer="heat">البقع المرجّحة</button>
-        <button class="chip" data-layer="depth">الأعماق GEBCO</button>
-        <button class="chip on" data-layer="spots">نقاطي</button>
-        <button class="chip" id="locBtn">موقعي</button>
+  <section id="v-map" class="view map-view">
+    <div id="map"></div>
+    <div class="map-top">
+      <div class="glass pill-row"><span id="net" class="status"></span><span id="queue" class="status hidden"></span></div>
+      <div class="map-btns">
+        <button class="glass round" id="layersBtn" aria-label="الطبقات" data-i="layers"></button>
+        <button class="glass round" id="locBtn" aria-label="موقعي" data-i="location"></button>
+        <button class="glass round" id="lockBtn" aria-label="الخزنة" data-i="lock"></button>
       </div>
-      <div class="estimate">⚠️ البقع تقدير حسابي وليست ضمان. ليست للملاحة.</div>
-      <div id="sheet" class="sheet"></div>
-    </section>
-    <section id="v-plan" class="view hidden"></section>
-    <section id="v-log" class="view hidden"></section>
-    <section id="v-rules" class="view hidden"></section>
-    <section id="v-safe" class="view hidden"></section>
-  </main>
-  <nav class="tabs">
-    <button data-v="map" class="on"><span>🗺️</span>الخريطة</button>
-    <button data-v="plan"><span>🌤️</span>الطلعة</button>
-    <button data-v="log"><span>🐟</span>سجلّي</button>
-    <button data-v="rules"><span>📜</span>الأنظمة</button>
-    <button data-v="safe"><span>🆘</span>السلامة</button>
+    </div>
+    <div class="glass coord" id="coord"></div>
+    <div class="glass legend" id="legend"></div>
+  </section>
+  <section id="v-today" class="view page hidden"></section>
+  <section id="v-trip" class="view page hidden"></section>
+  <section id="v-log" class="view page hidden"></section>
+  <section id="v-more" class="view page hidden"></section>
+  <nav class="tabbar glass" id="tabbar">
+    <button data-v="today"><i data-i="sun"></i><span>اليوم</span></button>
+    <button data-v="map" class="on"><i data-i="map"></i><span>الخريطة</span></button>
+    <button data-v="trip"><i data-i="boat"></i><span>الرحلة</span></button>
+    <button data-v="log"><i data-i="fish"></i><span>سجلّي</span></button>
+    <button data-v="more"><i data-i="more"></i><span>المزيد</span></button>
   </nav>
 </div>
-<div id="modal" class="modal hidden"><div class="modal-card" id="modalCard"></div></div>
-<div id="toast" class="toast"></div>
-<script src="vendor/leaflet.js"></script>
-<script src="vendor/leaflet-heat.js"></script>
+<div id="scrim" class="scrim"></div>
+<div id="sheet" class="sheet glass" role="dialog"><div class="grab"><span></span></div><div class="sheet-body" id="sheetBody"></div></div>
+<div id="toast" class="toast glass"></div>
+<script src="vendor/maplibre-gl.js"></script>
 <script type="module" src="app.js"></script>
 </body>
 </html>
