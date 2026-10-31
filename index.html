@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#06243a">
+<meta name="robots" content="noindex">
+<title>صيّاد الخليج</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="fonts/fonts.css">
+<link rel="stylesheet" href="vendor/leaflet.css">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="login" class="screen hidden">
+  <div class="login-card">
+    <div class="logo"><img src="icons/icon.svg" alt=""><div><h1>صيّاد الخليج</h1><p>خريطة صيد ذكية لمياه الإمارات</p></div></div>
+    <label>البريد الإلكتروني<input id="em" type="email" autocomplete="username" dir="ltr"></label>
+    <label>كلمة المرور<input id="pw" type="password" autocomplete="current-password" dir="ltr"></label>
+    <button id="loginBtn" class="btn primary">دخول</button>
+    <p id="loginErr" class="err"></p>
+    <p class="fine">تطبيق خاص. التسجيل مغلق. للتخطيط فقط وليس للملاحة.</p>
+  </div>
+</div>
+<div id="app" class="hidden">
+  <header class="top">
+    <div class="brand"><img src="icons/icon.svg" alt=""><b>صيّاد الخليج</b></div>
+    <div class="top-r"><span id="net" class="pill"></span><span id="queue" class="pill hidden"></span><button id="lockBtn" class="icon-btn" title="قفل الخزنة">🔒</button><button id="logoutBtn" class="icon-btn" title="خروج">⎋</button></div>
+  </header>
+  <main>
+    <section id="v-map" class="view">
+      <div id="map"></div>
+      <div class="map-tools">
+        <button class="chip on" data-layer="heat">البقع المرجّحة</button>
+        <button class="chip" data-layer="depth">الأعماق GEBCO</button>
+        <button class="chip on" data-layer="spots">نقاطي</button>
+        <button class="chip" id="locBtn">موقعي</button>
+      </div>
+      <div class="estimate">⚠️ البقع تقدير حسابي وليست ضمان. ليست للملاحة.</div>
+      <div id="sheet" class="sheet"></div>
+    </section>
+    <section id="v-plan" class="view hidden"></section>
+    <section id="v-log" class="view hidden"></section>
+    <section id="v-rules" class="view hidden"></section>
+    <section id="v-safe" class="view hidden"></section>
+  </main>
+  <nav class="tabs">
+    <button data-v="map" class="on"><span>🗺️</span>الخريطة</button>
+    <button data-v="plan"><span>🌤️</span>الطلعة</button>
+    <button data-v="log"><span>🐟</span>سجلّي</button>
+    <button data-v="rules"><span>📜</span>الأنظمة</button>
+    <button data-v="safe"><span>🆘</span>السلامة</button>
+  </nav>
+</div>
+<div id="modal" class="modal hidden"><div class="modal-card" id="modalCard"></div></div>
+<div id="toast" class="toast"></div>
+<script src="vendor/leaflet.js"></script>
+<script src="vendor/leaflet-heat.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
