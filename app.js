@@ -928,7 +928,7 @@ function speak(t) { try { const N = window.GFNative; if (N?.tts) return N.tts(t)
 function stopSpeak() { try { window.GFNative?.ttsStop ? window.GFNative.ttsStop() : speechSynthesis.cancel(); } catch {} }
 
 // ---- context the assistant sees: only numbers the app already computed (no secrets, no raw vault) ----
-function aiOrigin() { if (here) return { lat: here.lat, lon: here.lon, n: "موقعي" }; const c = defAt();
+function aiOrigin(port) { if (here && !port) return { lat: here.lat, lon: here.lon, n: "موقعي" }; const c = defAt();
   const p = PORTS.map((x) => ({ ...x, d: haversine(c, x) })).sort((a, b) => a.d - b.d)[0]; return p ? { lat: p.lat, lon: p.lon, n: p.n } : { lat: c.lat, lon: c.lon, n: c.name }; }
 async function ensureHere() { if (!here) await Promise.race([locate(false), new Promise((r) => setTimeout(r, 6000))]).catch(() => {}); }
 const verifiedRules = () => RULES.filter((r) => r.status === "verified").map((r) => ({ text: r.text, species: r.species.map((s) => spName(s)), months: r.months, source: r.src?.[0] }));
@@ -1018,7 +1018,7 @@ async function toWav(blob) { const ac = new (window.AudioContext || window.webki
 // ---- daily AI trip plan: the app computes candidates + real sea routes, the AI only chooses and explains ----
 async function runPlan() { const box = $("#aiPlan"); if (!box) return; if (!navigator.onLine) return toast("الخطة تحتاج اتصال");
   box.innerHTML = `<div class="card ai-card"><div class="msg bot wait"><span class="dots"><i></i><i></i><i></i></span>أحسب المسارات وأقارن البقع…</div></div>`;
-  try { await ensureHere(); const o = aiOrigin(), base = await fullCtx(false), cands = await candidates(o);
+  try { await ensureHere(); let o = aiOrigin(), cands = await candidates(o); if (!cands.length && here) { o = aiOrigin(true); cands = await candidates(o); } const base = { ...(await fullCtx(false)), origin: o.n };
     if (!cands.length) throw new Error("ما لقيت بقع قريبة بمسار بحري آمن حسب إعداداتك");
     const j = await ai({ action: "plan", context: { ...base, candidates: cands.map(({ _R, ...c }) => c) } }); AIPLAN = { d: j.data || {}, cands, o, at: Date.now() }; planCard(AIPLAN); }
   catch (e) { box.innerHTML = `<div class="note warn">${I("warn")}<div>${esc(AIERR(e))}</div></div>`; paintIcons(box); } }
