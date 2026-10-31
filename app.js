@@ -237,7 +237,7 @@ function addOverlays() { if (map.getSource("route")) return;
   v5Overlays(below); applyLayers(); drawHot(); drawPois(); drawRoute(); drawTrack();
 }
 function applyLayers() { if (!map?.getLayer("hot")) return; const v = (id, on) => map.getLayer(id) && map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
-  v("hot", LAYERS.hot); v("seamark", LAYERS.seamark); v("contours", LAYERS.contours); v("contour-lbl", LAYERS.contours); v("gebco", LAYERS.gebco); v("sat", LAYERS.sat); v("pois", LAYERS.pois); v("pois-lbl", LAYERS.pois); v("fronts", LAYERS.fronts !== false); v("fronts-old", LAYERS.fronts !== false && LAYERS.frontsOld !== false); v("birds", LAYERS.recs); v("birds-lbl", LAYERS.recs);
+  v("hot", LAYERS.hot); v("seamark", LAYERS.seamark); v("contours", LAYERS.contours); v("contour-lbl", LAYERS.contours); v("gebco", LAYERS.gebco); v("sat", LAYERS.sat); v("pois", LAYERS.pois); v("pois-lbl", LAYERS.pois); v("fronts", LAYERS.fronts !== false); v("fronts-case", LAYERS.fronts !== false); v("fronts-old", LAYERS.fronts !== false && LAYERS.frontsOld !== false); v("birds", LAYERS.recs); v("birds-lbl", LAYERS.recs);
   markers.forEach((m) => (m.getElement().style.display = LAYERS.recs ? "" : "none")); $("#legend").classList.toggle("hidden", !LAYERS.hot); }
 function drawHot() { if (!HOT || !map?.getSource("hot")) return; const { url, coords } = hotImage(); map.getSource("hot").updateImage({ url, coordinates: coords });
   $("#legend").innerHTML = `<b>البقع المرجّحة (تقدير)</b><div class="ramp"></div><div class="ends"><span>أقل</span><span>أعلى</span></div><div style="color:var(--fg2);margin-top:3px">حرارة السطح ${esc((OCEAN.sst_time || "").slice(0, 10))} · كلوروفيل ${esc((OCEAN.chl_time || "").slice(0, 10))}</div>`; }
@@ -1078,6 +1078,7 @@ function v5Overlays(below) {
   map.addSource("fronts", { type: "geojson", data: "data/fronts.geojson" });
   const col = ["match", ["get", "t"], "sst", FT_COL.sst, "chl", FT_COL.chl, FT_COL.kd], w = ["match", ["get", "s"], "قوي", 3.2, "متوسط", 2.2, 1.3];
   map.addLayer({ id: "fronts-old", type: "line", source: "fronts", filter: [">", ["get", "age"], 0], paint: { "line-color": col, "line-width": ["*", 0.7, w], "line-opacity": ["match", ["get", "age"], 1, 0.45, 0.25], "line-dasharray": [2, 2] }, layout: { "line-cap": "butt" } }, below);
+  map.addLayer({ id: "fronts-case", type: "line", source: "fronts", filter: ["==", ["get", "age"], 0], paint: { "line-color": "#000", "line-width": ["+", 2.5, w], "line-opacity": 0.45 }, layout: { "line-cap": "round", "line-join": "round" } }, below);
   map.addLayer({ id: "fronts", type: "line", source: "fronts", filter: ["==", ["get", "age"], 0], paint: { "line-color": col, "line-width": w, "line-opacity": 0.95 }, layout: { "line-cap": "round", "line-join": "round" } }, below);
   map.addSource("birds", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
   map.addLayer({ id: "birds", type: "circle", source: "birds", paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 6, 5, 12, 11], "circle-color": "#fff", "circle-stroke-color": "#0a84ff", "circle-stroke-width": 3, "circle-opacity": ["get", "o"], "circle-stroke-opacity": ["get", "o"] } });
@@ -1168,7 +1169,7 @@ function nowTime() { const c = condAt(new Date()); return { moon: (1 - Math.cos(
 function modelProb(x) { const M = SEAM; const z = M.keys.map((k, i) => ((x[k] ?? M.mean[k]) - M.mu[i]) / M.sd[i]); return 1 / (1 + Math.exp(-(M.b[0] + z.reduce((a, v, i) => a + v * M.b[i + 1], 0)))); }
 function todayMatch() { if (!SEAM?.ready) return null; const t = nowTime(), m = SEAM.mean; return modelProb({ ...Object.fromEntries(SEAM.keys.slice(0, NSP).map((k) => [k, m[k]])), ...t }); }
 function v5Adjust(score) { // bird boost + personal model blend, applied after base score
-  const { rows, cols, step, lat0, lon0 } = OCEAN, B = activeBirds(), now = Date.now(); if (!SEAM || SEAM.stamp !== RECS.length) { trainSeaModel(); SEAM.stamp = RECS.length; }
+  const { rows, cols, step, lat0, lon0 } = OCEAN, B = activeBirds(), now = Date.now(); const stamp = RECS.filter((r) => r.kind === "catch" || r.kind === "blank").map((r) => r.updated_at).join(); if (!SEAM || SEAM.stamp !== stamp) { trainSeaModel(); SEAM.stamp = stamp; persistModel(); }
   const M = SEAM?.ready ? SEAM : null, tf = M ? nowTime() : null;
   if (M) for (let i = 0; i < rows; i++) for (let j = 0; j < cols; j++) { const k = i * cols + j; if (score[k] < 0) continue; const s = seaFeat(lat0 + i * step, lon0 + j * step); if (!s) continue; score[k] = (1 - M.w) * score[k] + M.w * modelProb({ ...s, ...tf }); }
   for (const r of B) { const h = (now - r.t) / 3600e3, a = SIG_W[r.signal] * clamp(r.confidence ?? 0.6) * Math.exp(-h / 2), ci = Math.round((r.lat - lat0) / step), cj = Math.round((r.lon - lon0) / step), kx = 111 * Math.cos(r.lat * Math.PI / 180);
@@ -1188,7 +1189,7 @@ function blankSheet() { needKey(async () => { await ensureHere(); const pos = he
     <label class="f">ملاحظات<textarea id="bx" rows="2"></textarea></label><button class="btn primary block" id="bOk">${I("lock")}حفظ مشفّر</button>`);
   $("#bOk", m).onclick = async () => { if (!pos) return toast("نحتاج موقع"); await saveRec("blank", { lat: pos.lat, lon: pos.lon, t: Date.now(), notes: $("#bx", m).value, ...condRec(pos.lat, pos.lon) }); closeSheet(); afterLearn(); toast("انحفظت الرحلة · الذاكرة تتعلّم"); rerender(); }; }); }
 function condRec(lat, lon) { const cond = condAt(new Date()), ex = lat != null ? explain(lat, lon) : null; return { moon: moon().idx, tide: cond?.tideStage || null, pressure: cond?.pressure ?? null, ptrend: cond?.ptrend ?? null, wind: cond?.wind ?? null, wave: cond?.wave ?? null, sst: ex?.sst ?? cond?.sst ?? null, feat: lat != null ? seaFeat(lat, lon) : null, hour: new Date().getHours() }; }
-function afterLearn() { SEAM = null; recomputeHot(); persistModel(); }
+function afterLearn() { SEAM = null; recomputeHot(); }
 
 if ("serviceWorker" in navigator && !window.Capacitor?.isNativePlatform?.() && !location.search.includes("nosw")) navigator.serviceWorker.register("sw.js").catch(() => {});
 window.__gf = { nearestFront, loadFronts, birdScan, birdSheet, logBird, activeBirds, trainSeaModel, get SEAM() { return SEAM; }, todayMatch, blankSheet, frontSheet, seaFeat, enc, dec, unlock, moon, solunar, sunTimes, hourScores, explain, idb, show, get KEY() { return KEY; }, get RECS() { return RECS; }, get map() { return map; }, get OCEAN() { return OCEAN; }, get HOT() { return HOT; }, sync, pointSheet, recSheet, shareCard, startRoute, planNav, startNav, endNav, navFix: onFix, seaRoute, returnToPort, searchSheet, loadNavData, SAID, get NAV() { return NAV; }, get PLAN() { return PLAN; }, get PORTS() { return PORTS; }, simMode(v) { startNav.sim = v; }, navDepth, NP, get POIS() { return POIS; }, fullCtx, candidates, runPlan, saveRec, recomputeHot, ask, fishCard, fishId, runLogSummary, toWav, get CHAT() { return CHAT; }, speak, todayCtx };
