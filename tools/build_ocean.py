@@ -97,8 +97,12 @@ land = np.isnan(bz) | (bz >= 0)
 import base64
 out["mask"] = {"lat0": float(bl[0]), "lon0": float(bo[0]), "dlat": float(bl[1] - bl[0]), "dlon": float(bo[1] - bo[0]), "rows": int(land.shape[0]), "cols": int(land.shape[1]),
   "bits": base64.b64encode(np.packbits(land.astype(np.uint8).ravel())).decode()}
+# navigation depth grid for the sea router: uint8 metres (0-254), 255 = land/unknown; same geometry as mask
+nd = np.where(land, 255, np.clip(np.round(-np.nan_to_num(bz, nan=1.0)), 0, 254)).astype(np.uint8)
+open(os.path.join(OUT, "navdepth.bin"), "wb").write(nd.tobytes())
 json.dump(out, open(os.path.join(OUT, "ocean.json"), "w"), separators=(",", ":"))
-json.dump({"generated": out["generated"], "pois": pois}, open(os.path.join(OUT, "pois.json"), "w"), ensure_ascii=False, separators=(",", ":"))
+if pois: json.dump({"generated": out["generated"], "pois": pois}, open(os.path.join(OUT, "pois.json"), "w"), ensure_ascii=False, separators=(",", ":"))
+else: print("keeping previous pois.json (Overpass failed)")
 # depth contours from SRTM15+
 import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
 levels = [5, 10, 20, 30, 50, 75, 100, 200]

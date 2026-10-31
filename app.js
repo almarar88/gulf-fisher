@@ -197,8 +197,8 @@ function initMap() {
   map.addControl(new maplibregl.AttributionControl({ compact: true, customAttribution: '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> · <a href="https://www.openstreetmap.org/copyright" target="_blank">© OSM</a> · <a href="https://openseamap.org" target="_blank">OpenSeaMap</a> · GEBCO · SRTM15+ · NASA MUR · NOAA' }), "bottom-right");
   map.addControl(new maplibregl.ScaleControl({ unit: units().dist === "nm" ? "nautical" : "metric", maxWidth: 110 }), "bottom-left");
   map.touchZoomRotate.disableRotation();
-  map.on("style.load", addOverlays);
-  map.on("click", onMapClick);
+  map.on("style.load", () => { addOverlays(); navLayers(); if (NAV.on) { drawNav(NAV.R, NAV.last, NAV.i); map.getLayer("hot") && map.setLayoutProperty("hot", "visibility", "none"); } else if (PLAN?.R?.pts) drawNav(PLAN.R); });
+  map.on("click", onMapClick); bindLongPress(); $("#goBtn").onclick = searchSheet;
   const co = (ll) => { const d = depthAt(ll.lat, ll.lng); $("#coord").textContent = `${dm(ll.lat, "N", "S")}  ${dm(ll.lng, "E", "W")}${d != null ? "  ·  ~" + U.depth(d) : ""}`; };
   map.on("mousemove", (e) => co(e.lngLat)); map.on("move", () => co(map.getCenter())); co(map.getCenter());
   $("#layersBtn").onclick = layersSheet; $("#locBtn").onclick = () => locate(true);
@@ -263,7 +263,7 @@ function locate(center) {
 /* ================= map interactions ================= */
 let ROUTE = { on: false, pts: [] };
 function onMapClick(e) {
-  const { lat, lng: lon } = e.lngLat;
+  if (NAV.on || Date.now() - LP < 800) return; const { lat, lng: lon } = e.lngLat;
   if (ROUTE.on) { ROUTE.pts.push({ lat, lon }); haptic(6); drawRoute(); routeSheet(); return; }
   const f = map.queryRenderedFeatures(e.point, { layers: ["pois"].filter((l) => map.getLayer(l)) })[0];
   pointSheet(lat, lon, f?.properties);
@@ -283,9 +283,10 @@ function pointSheet(lat, lon, poi) {
       <div class="w"><span>شعاب وحطام (${HW.structure * 100}٪)</span><b>${x.near ? U.dist(x.near.km) : "—"}</b><small>${HOT.structs ? (x.near ? `أقرب ${POI_AR[x.near.k]}${x.near.n ? ": " + esc(x.near.n) : ""} (OpenStreetMap)` : "") : "ما توفرت بيانات الشعاب/الحطام من OpenStreetMap، فما دخلت بالحساب"}</small></div>
       <div class="w"><span>قرب صيداتك (${HW.log * 100}٪)</span><b>${x.nc} خلال 10 كم</b><small>من سجلّك المشفّر</small></div></div>
       <div class="note info">${I("info")}<div>تقدير حسابي من بيانات أقمار صناعية حقيقية (MUR SST ‏${esc((OCEAN.sst_time || "").slice(0, 10))}، كلوروفيل ${esc((OCEAN.chl_time || "").slice(0, 10))}) وأعماق SRTM15+. ما يضمن وجود سمك، وليس للملاحة.</div></div>` : ""}
-    <div class="actions"><button class="btn primary sm" id="pSave">${I("star")}احفظ نقطة</button><button class="btn tinted sm" id="pCatch">${I("fish")}سجّل صيدة</button><button class="btn sm" id="pWx">${I("sun")}طقس النقطة</button><button class="btn sm" id="pRoute">${I("route")}مسار لهنا</button></div>`);
+    <div class="actions"><button class="btn primary sm" id="pNav">${I("navi")}وجّهني</button><button class="btn sm" id="pSave">${I("star")}احفظ نقطة</button><button class="btn tinted sm" id="pCatch">${I("fish")}سجّل صيدة</button><button class="btn sm" id="pWx">${I("sun")}طقس النقطة</button><button class="btn sm" id="pRoute">${I("route")}مسار لهنا</button></div>`);
   $("#pSave", m).onclick = () => spotSheet({ lat, lon }); $("#pCatch", m).onclick = () => catchSheet({ lat, lon });
   $("#pWx", m).onclick = () => { AT = { lat, lon, name: "نقطة على الخريطة" }; WX = null; closeSheet(); show("today"); };
+  $("#pNav", m).onclick = () => planNav({ lat, lon, n: poi?.label || `نقطة ${lat.toFixed(3)}, ${lon.toFixed(3)}`, k: poi?.k || "pin" });
   $("#pRoute", m).onclick = () => { closeSheet(); startRoute(here ? [{ lat: here.lat, lon: here.lon }, { lat, lon }] : [{ lat, lon }]); };
 }
 function recSheet(r) {
@@ -293,9 +294,10 @@ function recSheet(r) {
     ${r.photo ? `<img class="photo" src="${r.photo}">` : ""}${r.notes ? `<p>${esc(r.notes)}</p>` : ""}
     ${r.kind === "catch" ? `<div class="list">${[["الطول", r.length ? r.length + " سم" : "—"], ["الوزن", r.weight ? r.weight + " كجم" : "—"], ["الطُعم", r.bait || "—"], ["العمق", r.depth != null ? U.depth(r.depth) : "—"], ["القمر", r.moon != null ? moon(new Date(r.t)).name : "—"], ["المد", r.tide || "—"]].map(([a, b]) => `<div class="row"><div class="m">${a}</div><span class="val">${esc(b)}</span></div>`).join("")}</div>` : ""}
     <p><span class="badge ok">${I("lock")}مشفّرة على جهازك</span></p>
-    <div class="actions"><button class="btn sm" id="rWx">${I("sun")}الطقس</button>${r.kind === "catch" ? `<button class="btn tinted sm" id="rCard">${I("share")}بطاقة صيدة</button>` : `<button class="btn sm" id="rRoute">${I("route")}مسار</button>`}<button class="btn sm" id="rShare">${I("share")}الإحداثيات</button><button class="btn danger sm" id="rDel">${I("trash")}حذف</button></div>`);
+    <div class="actions"><button class="btn primary sm" id="rNav">${I("navi")}وجّهني</button><button class="btn sm" id="rWx">${I("sun")}الطقس</button>${r.kind === "catch" ? `<button class="btn tinted sm" id="rCard">${I("share")}بطاقة صيدة</button>` : `<button class="btn sm" id="rRoute">${I("route")}مسار</button>`}<button class="btn sm" id="rShare">${I("share")}الإحداثيات</button><button class="btn danger sm" id="rDel">${I("trash")}حذف</button></div>`);
   $("#rWx", m).onclick = () => { AT = { lat: r.lat, lon: r.lon, name: r.name || spName(r.species) }; WX = null; closeSheet(); show("today"); };
   $("#rCard", m) && ($("#rCard", m).onclick = () => shareCard(r));
+  $("#rNav", m).onclick = () => planNav({ lat: r.lat, lon: r.lon, n: r.name || spName(r.species, r.other), k: r.kind });
   $("#rRoute", m) && ($("#rRoute", m).onclick = () => { closeSheet(); startRoute(here ? [{ lat: here.lat, lon: here.lon }, { lat: r.lat, lon: r.lon }] : [{ lat: r.lat, lon: r.lon }]); });
   $("#rShare", m).onclick = () => { if (confirm("بتشارك الإحداثيات الدقيقة لهالنقطة. متأكد؟")) open(`https://wa.me/?text=${encodeURIComponent(`${r.name || "نقطة"}: https://maps.google.com/?q=${r.lat},${r.lon}`)}`, "_blank"); };
   $("#rDel", m).onclick = async () => { if (confirm("حذف نهائي؟")) { await delRec(r.id); closeSheet(); drawRecs(); toast("انحذفت"); rerender(); } };
@@ -697,7 +699,7 @@ async function netState() { const n = $("#net"), q = $("#queue"); if (!n) return
   const pend = (await idb.all().catch(() => [])).filter((r) => r.dirty).length; q.classList.toggle("hidden", !pend); q.textContent = pend ? `${pend} بانتظار المزامنة` : ""; }
 hooks.queue = netState;
 addEventListener("online", () => { netState(); sync().then(() => { drawRecs(); rerender(); }); }); addEventListener("offline", netState);
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && (TRACK.on || ANCHOR.on)) wake(true); });
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && (TRACK.on || ANCHOR.on || NAV.on)) wake(true); });
 
 async function start() {
   applyTheme(); paintIcons();
@@ -712,6 +714,210 @@ async function start() {
   if (!KEY) setTimeout(() => vaultSheet(), 500);
   loadWx(defAt()).then((w) => { if (w) { WX = w; updateSky(defAt(), w); } });
 }
+/* ================= sea navigation (Google-Maps-style, estimate only) ================= */
+Object.assign(P, {
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  navi: '<path d="M12 2 4.5 20.3l.7.7L12 18l6.8 3 .7-.7z"/>',
+  home: '<path d="M3 11 12 3l9 8"/><path d="M5 10v10h14V10"/>',
+  vol: '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/>',
+  mute: '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="m22 9-6 6M16 9l6 6"/>',
+  port: '<circle cx="12" cy="5" r="2"/><path d="M12 7v14M5 13a7 7 0 0 0 14 0M8 11h8"/>',
+  target: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3"/>',
+});
+const DEG = Math.PI / 180;
+const NP = () => ({ draft: 1.0, margin: 1.5, hz: 300, ...JSON.parse(localStorage.getItem("gf_nav") || "{}") });
+const setNP = (o) => localStorage.setItem("gf_nav", JSON.stringify({ ...NP(), ...o }));
+const brg = (a, b) => { const y = Math.sin((b.lon - a.lon) * DEG) * Math.cos(b.lat * DEG), x = Math.cos(a.lat * DEG) * Math.sin(b.lat * DEG) - Math.sin(a.lat * DEG) * Math.cos(b.lat * DEG) * Math.cos((b.lon - a.lon) * DEG); return (Math.atan2(y, x) / DEG + 360) % 360; };
+const KIND_AR = { port: "ميناء / مرسى", spot: "نقطتي", catch: "صيدة", wreck: "حطام", reef: "شعاب", shoal: "ضحضاح", island: "جزيرة", pin: "نقطة" };
+let PORTS = [], NAVD = null;
+async function loadNavData() {
+  if (!PORTS.length) PORTS = (await fetch("data/ports.json").then((r) => r.json()).catch(() => ({ ports: [] }))).ports || [];
+  if (!NAVD) { const b = await fetch("data/navdepth.bin").then((r) => r.ok ? r.arrayBuffer() : null).catch(() => null); if (b && OCEAN?.mask && b.byteLength === OCEAN.mask.rows * OCEAN.mask.cols) NAVD = new Uint8Array(b); }
+  return !!NAVD;
+}
+const MG = () => OCEAN.mask;
+const cellK = (p) => { const M = MG(), i = Math.round((p.lat - M.lat0) / M.dlat), j = Math.round((p.lon - M.lon0) / M.dlon); return i < 0 || j < 0 || i >= M.rows || j >= M.cols ? -1 : i * M.cols + j; };
+const cellLL = (k) => { const M = MG(); return { lat: M.lat0 + Math.floor(k / M.cols) * M.dlat, lon: M.lon0 + (k % M.cols) * M.dlon }; };
+const navDepth = (p) => { const k = cellK(p); if (k < 0 || !NAVD) return null; return NAVD[k] === 255 ? -1 : NAVD[k]; };
+// passability: 0 land/too shallow, 1 ok, 2 ok but within 3 m of the limit (penalised), 3 hazard buffer (reef/shoal/wreck)
+function buildPass() {
+  const M = MG(), C = M.cols, n = M.rows * C, p = NP(), need = p.draft + p.margin, key = [need, p.hz, POIS.length].join();
+  if (buildPass.k === key) return buildPass.v;
+  const pass = new Uint8Array(n);
+  for (let k = 0; k < n; k++) { const d = NAVD[k]; pass[k] = d === 255 || d < need ? 0 : d < need + 3 ? 2 : 1; }
+  const cellM = M.dlat * 111000;
+  for (const q of POIS) { if (q.k === "island") continue; const c = cellK(q); if (c < 0) continue; const i0 = Math.floor(c / C), j0 = c % C, r = Math.ceil(p.hz / cellM) + 1, kx = Math.cos(q.lat * DEG);
+    for (let di = -r; di <= r; di++) for (let dj = -r; dj <= r; dj++) { const i = i0 + di, j = j0 + dj; if (i < 0 || j < 0 || i >= M.rows || j >= C) continue;
+      const dm = Math.hypot(di * cellM, dj * cellM * kx); if (dm <= Math.max(p.hz, cellM * 0.6) && pass[i * C + j]) pass[i * C + j] = 3; } }
+  buildPass.k = key; buildPass.v = pass; return pass;
+}
+class Heap { constructor() { this.k = []; this.f = []; }
+  push(k, f) { const K = this.k, F = this.f; let i = K.length; K.push(k); F.push(f); while (i > 0) { const p = (i - 1) >> 1; if (F[p] <= f) break; K[i] = K[p]; F[i] = F[p]; i = p; } K[i] = k; F[i] = f; }
+  pop() { const K = this.k, F = this.f, top = K[0], lk = K.pop(), lf = F.pop(); if (K.length) { let i = 0; const n = K.length; for (;;) { let c = 2 * i + 1; if (c >= n) break; if (c + 1 < n && F[c + 1] < F[c]) c++; if (F[c] >= lf) break; K[i] = K[c]; F[i] = F[c]; i = c; } K[i] = lk; F[i] = lf; } return top; }
+  get size() { return this.k.length; } }
+const okP = (pass, k) => k >= 0 && (pass[k] === 1 || pass[k] === 2);
+function snapCell(pass, k, maxR = 24) { const M = MG(), C = M.cols, i0 = Math.floor(k / C), j0 = k % C; let best = -1, bd = 1e9;
+  for (let r = 1; r <= maxR; r++) { for (let di = -r; di <= r; di++) for (let dj = -r; dj <= r; dj++) { if (Math.max(Math.abs(di), Math.abs(dj)) !== r) continue; const i = i0 + di, j = j0 + dj; if (i < 0 || j < 0 || i >= M.rows || j >= C) continue; const kk = i * C + j; if (pass[kk] !== 1) continue; const d = di * di + dj * dj; if (d < bd) { bd = d; best = kk; } } if (best >= 0) return best; }
+  return -1; }
+function astar(pass, s, g) {
+  const M = MG(), C = M.cols, R = M.rows, n = R * C, G = new Float32Array(n).fill(Infinity), from = new Int32Array(n).fill(-1), closed = new Uint8Array(n), h = new Heap();
+  const gi = Math.floor(g / C), gj = g % C, kxRow = new Float32Array(R); for (let i = 0; i < R; i++) kxRow[i] = Math.cos((M.lat0 + i * M.dlat) * DEG) * M.dlon / M.dlat;
+  const H = (i, j) => Math.hypot(i - gi, (j - gj) * kxRow[i]);
+  G[s] = 0; h.push(s, H(Math.floor(s / C), s % C)); const NB = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]; let it = 0;
+  while (h.size) { const k = h.pop(); if (k === g) break; if (closed[k]) continue; closed[k] = 1; if (++it > 2e6) return null; const i = Math.floor(k / C), j = k % C;
+    for (const [di, dj] of NB) { const a = i + di, b = j + dj; if (a < 0 || b < 0 || a >= R || b >= C) continue; const kk = a * C + b; if (closed[kk] || !okP(pass, kk)) continue;
+      if (di && dj && (!okP(pass, i * C + b) || !okP(pass, a * C + j))) continue; // no corner cutting
+      const step = Math.hypot(di, dj * kxRow[i]) * (pass[kk] === 2 ? 1.8 : 1), ng = G[k] + step; if (ng < G[kk]) { G[kk] = ng; from[kk] = k; h.push(kk, ng + H(a, b)); } } }
+  if (from[g] < 0 && s !== g) return null; const path = [g]; let k = g; while (k !== s) { k = from[k]; path.push(k); } return path.reverse();
+}
+function los(pass, a, b, allowEnds) { const M = MG(), n = Math.ceil(Math.hypot((b.lat - a.lat) / M.dlat, (b.lon - a.lon) / M.dlon) * 3) + 1;
+  for (let t = 0; t <= n; t++) { const u = t / n; if (allowEnds && (t === 0 || t === n)) continue; if (!okP(pass, cellK({ lat: a.lat + (b.lat - a.lat) * u, lon: a.lon + (b.lon - a.lon) * u }))) return false; } return true; }
+function pull(pass, pts) { if (pts.length < 3) return pts; const out = [pts[0]]; let i = 0;
+  while (i < pts.length - 1) { let j = Math.min(pts.length - 1, i + 600); while (j > i + 1 && !los(pass, pts[i], pts[j])) j--; out.push(pts[j]); i = j; } return out; }
+function seaRoute(o, d) {
+  const t0 = performance.now(), pass = buildPass(), c0 = cellK(o), c1 = cellK(d);
+  if (c0 < 0 || c1 < 0) return { err: "النقطة خارج نطاق الخريطة (مياه الإمارات وما حولها)" };
+  const s = okP(pass, c0) ? c0 : snapCell(pass, c0), g = okP(pass, c1) ? c1 : snapCell(pass, c1);
+  if (s < 0) return { err: "نقطة البداية بعيدة عن مياه بعمق كافي حسب إعداداتك" }; if (g < 0) return { err: "الوجهة بعيدة عن مياه بعمق كافي حسب إعداداتك" };
+  const path = astar(pass, s, g); if (!path) return { err: "ما لقينا مسار بحري آمن بهالإعدادات (جرّب تقلّل الغاطس أو هامش الأمان)" };
+  let core = pull(pass, path.map(cellLL)); const pts = [], hz = new Set(), dHaz = pass[c1] === 3;
+  if (okP(pass, c0) && (core.length < 2 || los(pass, o, core[1]))) core[0] = { lat: o.lat, lon: o.lon }; else { pts.push({ lat: o.lat, lon: o.lon }); hz.add(0); }
+  pts.push(...core);
+  if (okP(pass, c1) && los(pass, pts.at(-2) || pts[0], d, true)) pts[pts.length - 1] = { lat: d.lat, lon: d.lon };
+  else if (!dHaz) { hz.add(pts.length - 1); pts.push({ lat: d.lat, lon: d.lon }); }
+  let minD = 1e9; for (let l = 0; l < pts.length - 1; l++) { if (hz.has(l)) continue; const a = pts[l], b = pts[l + 1], n = Math.max(1, Math.ceil(haversine(a, b) / 0.3)); for (let t = 0; t <= n; t++) { const v = navDepth({ lat: a.lat + (b.lat - a.lat) * t / n, lon: a.lon + (b.lon - a.lon) * t / n }); if (v != null && v >= 0) minD = Math.min(minD, v); } }
+  return { pts, hz: [...hz], km: pathKm(pts), dest: d, approach: dHaz ? haversine(pts.at(-1), d) * 1000 : 0, minD: minD < 1e9 ? minD : null, ms: Math.round(performance.now() - t0), at: Date.now() };
+}
+
+/* ---- map drawing ---- */
+function drawNav(R, fix, i) { const s = map?.getSource("nav"); if (!s) return; if (!R) { s.setData(fc([])); return; }
+  const f = []; const pts = R.pts;
+  for (let l = 0; l < pts.length - 1; l++) { if (fix && l < i - 1) continue; const a = fix && l === i - 1 ? fix : pts[l]; f.push({ type: "Feature", properties: { h: R.hz.includes(l) ? 1 : 0 }, geometry: { type: "LineString", coordinates: [[a.lon, a.lat], [pts[l + 1].lon, pts[l + 1].lat]] } }); }
+  pts.slice(1, -1).forEach((p, k) => { if (!fix || k + 1 >= i) f.push({ type: "Feature", properties: { w: 1 }, geometry: { type: "Point", coordinates: [p.lon, p.lat] } }); });
+  f.push({ type: "Feature", properties: { end: 1 }, geometry: { type: "Point", coordinates: [R.dest.lon, R.dest.lat] } });
+  s.setData(fc(f)); }
+function navLayers() { if (!map || map.getSource("nav")) return; map.addSource("nav", { type: "geojson", data: fc([]) });
+  map.addLayer({ id: "nav-case", type: "line", source: "nav", filter: ["==", "$type", "LineString"], paint: { "line-color": "#ffffff", "line-width": 10, "line-opacity": 0.9 }, layout: { "line-cap": "round", "line-join": "round" } });
+  map.addLayer({ id: "nav-line", type: "line", source: "nav", filter: ["==", "$type", "LineString"], paint: { "line-color": ["case", ["==", ["get", "h"], 1], "#ff9f0a", "#0a84ff"], "line-width": 6 }, layout: { "line-cap": "round", "line-join": "round" } });
+  map.addLayer({ id: "nav-wp", type: "circle", source: "nav", filter: ["has", "w"], paint: { "circle-radius": 5, "circle-color": "#fff", "circle-stroke-color": "#0a84ff", "circle-stroke-width": 2.5 } });
+  map.addLayer({ id: "nav-end", type: "circle", source: "nav", filter: ["has", "end"], paint: { "circle-radius": 10, "circle-color": "#ff375f", "circle-stroke-color": "#fff", "circle-stroke-width": 3 } }); }
+function fitNav(R) { if (!map || !R) return; const b = new maplibregl.LngLatBounds(); R.pts.forEach((p) => b.extend([p.lon, p.lat])); const mob = innerWidth < 900;
+  map.fitBounds(b, { padding: mob ? { top: 90, bottom: Math.round(innerHeight * 0.5), left: 40, right: 40 } : { top: 80, bottom: 80, left: 80, right: 600 }, duration: 600, maxZoom: 13 }); }
+
+/* ---- destination search ---- */
+function destList() { const o = here || (map ? { lat: map.getCenter().lat, lon: map.getCenter().lng } : { lat: 24.5, lon: 54.4 });
+  const L = [...RECS.filter((r) => (r.kind === "spot" || r.kind === "catch") && r.lat != null).map((r) => ({ k: r.kind, n: r.name || spName(r.species, r.other) || "نقطة", lat: r.lat, lon: r.lon })),
+    ...PORTS.map((p) => ({ k: "port", n: p.n, en: p.en, lat: p.lat, lon: p.lon })), ...POIS.filter((p) => p.k !== "island").map((p) => ({ k: p.k, n: p.n || POI_AR[p.k], lat: p.lat, lon: p.lon }))];
+  const seen = new Set(); return L.filter((x) => { const key = x.n + "|" + x.lat.toFixed(2) + "|" + x.lon.toFixed(2); if (seen.has(key)) return false; seen.add(key); return true; })
+    .map((x) => ({ ...x, km: haversine(o, x) })).sort((a, b) => a.km - b.km); }
+const kindIcon = (k) => ({ port: "port", spot: "star", catch: "fish", pin: "target" }[k] || "target");
+function searchSheet() { loadNavData().then(() => {
+  let F = "all"; const m = openSheet(`<h2>وين بتروح؟</h2><div class="meta">اختار وجهة، أو اضغط مطوّلاً على البحر في الخريطة</div>
+    <div class="searchbox">${I("search")}<input id="q" type="search" placeholder="ابحث: ميناء، مرسى، شعاب، حطام، نقطتك…" autocomplete="off"></div>
+    <div class="chips" id="qf">${[["all", "الكل"], ["mine", "نقاطي"], ["port", "موانئ ومراسي"], ["struct", "شعاب وحطام"]].map(([k, t]) => `<button class="chip${k === "all" ? " on" : ""}" data-f="${k}">${t}</button>`).join("")}</div>
+    <div class="list" id="ql"></div>`);
+  const draw = () => { const q = $("#q", m).value.trim().toLowerCase(); const L = destList().filter((x) => (F === "all" || (F === "mine" && (x.k === "spot" || x.k === "catch")) || (F === "port" && x.k === "port") || (F === "struct" && ["reef", "wreck", "shoal"].includes(x.k))) && (!q || (x.n + " " + (x.en || "") + " " + KIND_AR[x.k]).toLowerCase().includes(q))).slice(0, 40);
+    $("#ql", m).innerHTML = L.length ? L.map((x, n) => `<button class="row dest" data-n="${n}">${ic(kindIcon(x.k), x.k === "port" ? "var(--blue)" : x.k === "spot" || x.k === "catch" ? "var(--orange)" : "var(--teal, #30b0c7)")}<div class="m"><b>${esc(x.n)}</b><small>${KIND_AR[x.k] || ""}${x.en && x.en !== x.n ? " · " + esc(x.en) : ""}</small></div><span class="small" dir="ltr">${U.dist(x.km)}</span></button>`).join("") : `<p class="fine">ما فيه نتائج${!KEY && F === "mine" ? " — افتح الخزنة عشان تشوف نقاطك" : ""}</p>`;
+    $$(".dest", m).forEach((b) => b.onclick = () => { const x = L[+b.dataset.n]; planNav({ lat: x.lat, lon: x.lon, n: x.n, k: x.k }); }); };
+  $("#q", m).oninput = draw; $$("#qf .chip", m).forEach((c) => c.onclick = () => { F = c.dataset.f; $$("#qf .chip", m).forEach((x) => x.classList.toggle("on", x === c)); draw(); }); draw(); }); }
+
+/* ---- planning ---- */
+let PLAN = null;
+async function planNav(dest, origin) {
+  if (!(await loadNavData())) { toast("بيانات العمق ما تحمّلت"); return null; }
+  if (!origin) { if (!here) await locate(false); origin = here ? { lat: here.lat, lon: here.lon, n: "موقعي" } : null; }
+  if (!origin) { const c = map ? { lat: map.getCenter().lat, lon: map.getCenter().lng } : dest; const p = PORTS.map((x) => ({ ...x, d: haversine(c, x) })).sort((a, b) => a.d - b.d)[0]; origin = p ? { lat: p.lat, lon: p.lon, n: p.n } : null; }
+  if (!origin) { toast("حدد نقطة انطلاق"); return null; }
+  if (!dest.n) dest.n = KIND_AR[dest.k] || "الوجهة"; PLAN = { dest, origin, R: seaRoute(origin, dest) }; show("map"); planSheet(); if (PLAN.R.pts) { drawNav(PLAN.R); fitNav(PLAN.R); } return PLAN.R;
+}
+function planSheet() { const { dest, origin, R } = PLAN, p = NP(), c = R.pts ? routeCalc(R.pts) : null, P0 = prefs();
+  const ports = PORTS.map((x) => ({ ...x, d: haversine(dest, x) })).sort((a, b) => a.d - b.d).slice(0, 25);
+  const warn = [];
+  if (R.hz?.includes(0)) warn.push("أول جزء (برتقالي) يمرّ في مياه ضحلة أو داخل مرسى ما تغطيه بيانات العمق: امشِ مع القناة والعلامات الملاحية.");
+  if (R.hz?.length && R.hz.at(-1) === R.pts.length - 2 && R.hz.at(-1) !== 0) warn.push("آخر جزء (برتقالي) لمياه ضحلة/قريبة من البر: قرّب بحذر.");
+  if (R.approach) warn.push(`الوجهة نفسها خطر ملاحي، فالمسار يوقف على بعد ~${Math.round(R.approach)} م منها.`);
+  const m = openSheet(`<h2>${I("navi")} ${esc(dest.n || "نقطة على الخريطة")}</h2>
+    <div class="meta">من <select id="nFrom" class="inline-select">${here ? `<option value="me"${origin.n === "موقعي" ? " selected" : ""}>موقعي</option>` : ""}${ports.map((x, n) => `<option value="${n}"${x.lat === origin.lat && x.lon === origin.lon ? " selected" : ""}>${esc(x.n)}</option>`).join("")}${origin.n !== "موقعي" && !ports.some((x) => x.lat === origin.lat && x.lon === origin.lon) ? `<option selected>${esc(origin.n)}</option>` : ""}</select></div>
+    ${R.err ? `<div class="note warn">${I("warn")} ${esc(R.err)}</div>` : `
+    <div class="grid g3"><div class="tile" style="min-height:0"><span class="lbl">${I("route")}المسافة</span><span class="big" style="font-size:20px">${U.dist(c.km)}</span><span class="small">${R.pts.length - 1} مرحلة</span></div>
+    <div class="tile" style="min-height:0"><span class="lbl">${I("clock")}الوقت</span><span class="big" style="font-size:20px">${dur(c.h)}</span><span class="small">على ${P0.speed} عقدة</span></div>
+    <div class="tile" style="min-height:0"><span class="lbl">${I("wave")}أقل عمق</span><span class="big" style="font-size:20px">${R.minD != null ? U.depth(R.minD) : "—"}</span><span class="small">تقديري</span></div></div>
+    ${warn.map((w) => `<div class="note warn">${I("warn")} ${w}</div>`).join("")}`}
+    <details class="card"><summary>${I("gear")} إعدادات السلامة: غاطس ${p.draft} م + هامش ${p.margin} م · بُعد عن الشعاب ${p.hz} م</summary>
+      <div class="grid g3"><label class="f">الغاطس (م)<input id="nDr" type="number" step="0.1" min="0.3" max="6" value="${p.draft}"></label><label class="f">هامش (م)<input id="nMg" type="number" step="0.5" min="0" max="10" value="${p.margin}"></label><label class="f">بُعد الشعاب (م)<input id="nHz" type="number" step="50" min="0" max="2000" value="${p.hz}"></label></div>
+      <button class="btn sm" id="nRe">${I("route")}أعد الحساب</button></details>
+    <p class="fine">المسار يتجنّب البر والمياه الأضحل من (الغاطس + الهامش) حسب SRTM15+/GEBCO بدقة ~900 م، ويبعد عن الشعاب والحطام المعروفة في OpenStreetMap. العمق نسبةً لمتوسط سطح البحر، والجزر (المدّ المنخفض) ينقصه. <b>مساعد تقديري — لا يغني عن الخرائط البحرية الرسمية والمراقبة بعينك.</b></p>
+    <div class="actions"><button class="btn primary" id="nGo" ${R.err ? "disabled" : ""}>${I("navi")}ابدأ الملاحة</button><button class="btn sm" id="nX">إلغاء</button></div>`, { keep: true, onClose: () => { if (!NAV.on) { PLAN = null; drawNav(null); } } });
+  $("#nFrom", m).onchange = (e) => { const v = e.target.value; const o = v === "me" ? { lat: here.lat, lon: here.lon, n: "موقعي" } : ports[+v] ? { lat: ports[+v].lat, lon: ports[+v].lon, n: ports[+v].n } : origin; planNav(dest, o); };
+  $("#nRe", m).onclick = () => { setNP({ draft: +$("#nDr", m).value || 1, margin: +$("#nMg", m).value || 0, hz: +$("#nHz", m).value || 0 }); planNav(dest, origin); };
+  $("#nX", m).onclick = closeSheet; $("#nGo", m).onclick = () => startNav(R, { sim: !!startNav.sim });
+}
+
+/* ---- navigation mode ---- */
+let NAV = { on: false, voice: localStorage.getItem("gf_voice") !== "0" };
+const SAID = [];
+function say(t) { SAID.push(t); NAV.prompt = t; if (!NAV.voice || !("speechSynthesis" in window)) return; try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(t); u.lang = "ar-SA"; const v = speechSynthesis.getVoices().find((x) => x.lang?.toLowerCase().startsWith("ar")); if (v) u.voice = v; speechSynthesis.speak(u); } catch {} }
+const nmTxt = (km) => { const nm = km / 1.852; return units().dist === "nm" ? (nm < 0.3 ? `${Math.round(km * 1000)} متر` : `${nm.toFixed(1)} ميل بحري`) : (km < 1 ? `${Math.round(km * 1000)} متر` : `${km.toFixed(1)} كيلو`); };
+function legPhrase(from, i) { const b = NAV.R.pts[i], d = Math.round(brg(from, b)); return `اتجه ${dirName(d)}، ${d} درجة، لمسافة ${nmTxt(haversine(from, b))}`; }
+let boatM = null;
+function boatMarker(f) { if (!map) return; if (!boatM) { const el = document.createElement("div"); el.className = "boat"; el.innerHTML = `<svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="18" fill="#0a84ff" stroke="#fff" stroke-width="3"/><path d="M20 8 12 29l8-4 8 4z" fill="#fff"/></svg>`; boatM = new maplibregl.Marker({ element: el, rotationAlignment: "map" }); }
+  boatM.setLngLat([f.lon, f.lat]).setRotation(f.cog ?? 0).addTo(map); }
+function startNav(R, { sim = false } = {}) {
+  if (!R?.pts) return; NAV = { on: true, R, i: 1, dest: R.dest, last: null, off: 0, lastRR: 0, warned: {}, voice: NAV.voice, follow: true, sim, t0: Date.now(), reroutes: 0 };
+  closeSheet(); show("map"); document.body.classList.add("navigating"); wake(true); drawNav(R); if (map?.getLayer("hot")) map.setLayoutProperty("hot", "visibility", "none");
+  const o = R.pts[0]; map?.easeTo({ center: [o.lon, o.lat], zoom: 13, duration: 700 });
+  say(`بدأت الملاحة إلى ${R.dest.n || "الوجهة"}. ${legPhrase(o, 1)}`); renderHud();
+  if (!sim && navigator.geolocation) NAV.watch = navigator.geolocation.watchPosition((p) => onFix({ lat: p.coords.latitude, lon: p.coords.longitude, sog: p.coords.speed != null ? p.coords.speed * 1.94384 : null, cog: p.coords.heading ?? null, acc: p.coords.accuracy, t: p.timestamp }), () => { NAV.gpsErr = true; renderHud(); }, { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 });
+}
+function endNav(msg) { if (NAV.watch != null) navigator.geolocation.clearWatch(NAV.watch); NAV = { on: false, voice: NAV.voice }; PLAN = null; document.body.classList.remove("navigating"); $("#navHud").innerHTML = ""; drawNav(null); boatM?.remove(); applyLayers();
+  if (!TRACK.on && !ANCHOR.on) wake(false); map?.easeTo({ bearing: 0, duration: 500 }); if (msg) toast(msg); }
+function xte(p, a, b) { const kx = 111.32 * Math.cos(p.lat * DEG), ky = 110.57, ax = (a.lon - p.lon) * kx, ay = (a.lat - p.lat) * ky, bx = (b.lon - p.lon) * kx, by = (b.lat - p.lat) * ky, dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy, t = L ? -(ax * dx + ay * dy) / L : 1, tc = clamp(t); return { d: Math.hypot(ax + tc * dx, ay + tc * dy), t }; }
+function remainKm(f) { const p = NAV.R.pts; let k = haversine(f, p[NAV.i]); for (let l = NAV.i; l < p.length - 1; l++) k += haversine(p[l], p[l + 1]); return k; }
+function onFix(f) {
+  if (!NAV.on) return; f = { ...f, t: f.t || Date.now() }; const prev = NAV.last;
+  if (prev) { const dk = haversine(prev, f), dt = (f.t - prev.t) / 3600000; if (f.sog == null && dt > 0) f.sog = dk / 1.852 / dt; if (f.cog == null) f.cog = dk > 0.005 ? brg(prev, f) : prev.cog; }
+  NAV.last = f; NAV.gpsErr = false; here = { lat: f.lat, lon: f.lon, acc: f.acc }; const p = NAV.R.pts;
+  // waypoint advance
+  while (NAV.i < p.length - 1) { const x = xte(f, p[NAV.i - 1], p[NAV.i]); if (haversine(f, p[NAV.i]) < 0.15 || x.t > 1) { NAV.i++; say(legPhrase(f, NAV.i)); } else break; }
+  const dWp = haversine(f, p[NAV.i]);
+  if (NAV.i === p.length - 1 && dWp < 0.12) { say(`وصلت ${NAV.dest.n || "وجهتك"}`); const n = NAV.dest.n; endNav(`وصلت ${n || "وجهتك"} 🎣`); return; }
+  if (NAV.i < p.length - 1 && dWp < 0.93 && !NAV.warned["pre" + NAV.i]) { NAV.warned["pre" + NAV.i] = 1; const nb = Math.round(brg(p[NAV.i], p[NAV.i + 1])); say(`بعد ${nmTxt(dWp)}، غيّر اتجاهك إلى ${dirName(nb)}، ${nb} درجة`); }
+  // off-route → reroute
+  const x = xte(f, p[NAV.i - 1], p[NAV.i]); NAV.xte = x.d; NAV.off = x.d > 0.4 ? NAV.off + 1 : 0;
+  if (NAV.off >= 2 && Date.now() - NAV.lastRR > 15000) { NAV.lastRR = Date.now(); const R2 = seaRoute(f, NAV.dest);
+    if (R2.pts) { R2.dest = NAV.dest; NAV.R = R2; NAV.i = 1; NAV.off = 0; NAV.reroutes++; say(`طلعت عن المسار. حسبت لك مسار جديد. ${legPhrase(f, 1)}`); } else say("طلعت عن المسار وما قدرت أحسب مسار جديد. ارجع للخط الأزرق"); }
+  // shallow / land under the boat
+  const dHere = navDepth(f), need = NP().draft + NP().margin; NAV.shallow = dHere != null && dHere < need;
+  if (NAV.shallow && Date.now() - (NAV.warned.sh || 0) > 60000) { NAV.warned.sh = Date.now(); say("انتبه، العمق هنا قليل حسب الخريطة"); }
+  boatMarker(f); drawNav(NAV.R, f, NAV.i);
+  if (NAV.follow && map) map.easeTo({ center: [f.lon, f.lat], bearing: f.sog > 1.5 && f.cog != null ? f.cog : map.getBearing(), duration: 600, offset: [0, innerWidth < 900 ? 120 : 0] });
+  renderHud();
+}
+function renderHud() { const h = $("#navHud"); if (!h || !NAV.on) return; const p = NAV.R.pts, f = NAV.last || p[0], wp = p[NAV.i], b = brg(f, wp), moving = f.sog > 1.5 && f.cog != null;
+  const rel = moving ? ((b - f.cog + 540) % 360) - 180 : null, km = remainKm(f), sp = moving ? f.sog : prefs().speed, eta = new Date(Date.now() + (km / 1.852 / Math.max(sp, 1)) * 3600000);
+  const turn = rel == null ? `اتجه ${dirName(b)}` : Math.abs(rel) < 12 ? "كمل سيدا" : rel > 0 ? `لف يمين ${Math.round(rel)}°` : `لف يسار ${Math.round(-rel)}°`;
+  h.innerHTML = `<div class="hud-top glass${NAV.off ? " off" : ""}"><div class="hud-arrow" style="transform:rotate(${rel ?? b}deg)">${I("navi")}</div>
+      <div class="hud-main"><b>${turn}</b><span dir="ltr" class="hud-brg">${Math.round(b)}°${moving ? "" : " T"}</span><small>${NAV.i < p.length - 1 ? "للنقطة التالية" : "للوجهة"} · ${U.dist(haversine(f, wp))}</small></div></div>
+    ${NAV.off ? `<div class="hud-banner red glass">${I("info")} طلعت عن المسار (${Math.round((NAV.xte || 0) * 1000)} م) — جاري إعادة الحساب</div>` : NAV.shallow ? `<div class="hud-banner orange glass">${I("info")} عمق قليل هنا حسب الخريطة</div>` : NAV.gpsErr ? `<div class="hud-banner orange glass">${I("info")} ما فيه إشارة GPS</div>` : ""}
+    <div class="hud-bot glass">${NAV.prompt ? `<div class="hud-say">${I("vol")} <span>${esc(NAV.prompt)}</span></div>` : ""}<div class="hud-stats"><div><b dir="ltr">${hmLtr(eta)}</b><small>الوصول</small></div><div><b>${U.dist(km)}</b><small>المتبقي</small></div><div><b dir="ltr">${f.sog != null ? f.sog.toFixed(1) : "—"}</b><small>عقدة SOG</small></div></div>
+      <div class="hud-btns"><button class="round glass" id="hVoice" aria-label="الصوت">${I(NAV.voice ? "vol" : "mute")}</button><button class="round glass" id="hFollow" aria-label="تتبّع">${I("location")}</button><button class="btn sm" id="hHome">${I("home")}رجوع للميناء</button><button class="btn danger sm" id="hEnd">إنهاء</button></div>
+      <p class="fine hud-fine">مساعد تقديري · لا يغني عن الخرائط البحرية الرسمية</p></div>`;
+  $("#hEnd").onclick = () => endNav("انتهت الملاحة"); $("#hVoice").onclick = () => { NAV.voice = !NAV.voice; localStorage.setItem("gf_voice", NAV.voice ? "1" : "0"); if (!NAV.voice) try { speechSynthesis.cancel(); } catch {} renderHud(); };
+  $("#hFollow").onclick = () => { NAV.follow = true; if (NAV.last) map.easeTo({ center: [NAV.last.lon, NAV.last.lat], zoom: 13 }); }; $("#hHome").onclick = returnToPort; }
+function returnToPort() { const f = NAV.last || here; if (!f) { toast("ننتظر GPS"); return; } loadNavData().then(() => {
+  const c = PORTS.map((x) => ({ ...x, d: haversine(f, x) })).sort((a, b) => a.d - b.d).slice(0, 5).map((x) => ({ x, R: seaRoute(f, { lat: x.lat, lon: x.lon, n: x.n }) })).filter((y) => y.R.pts).sort((a, b) => a.R.km - b.R.km)[0];
+  if (!c) { toast("ما لقينا مسار لأقرب ميناء"); return; } c.R.dest = { lat: c.x.lat, lon: c.x.lon, n: c.x.n, k: "port" };
+  const sim = NAV.sim; startNav(c.R, { sim }); say(`راجعين إلى ${c.x.n}. ${legPhrase(f, 1)}`); if (NAV.last == null) NAV.last = f; renderHud(); }); }
+// long-press (touch) / right-click (desktop) on the sea → navigate there
+let LP = 0;
+function bindLongPress() { const el = map.getCanvasContainer(); let t = null, s = null;
+  const fire = (x, y) => { LP = Date.now(); haptic(15); const r = el.getBoundingClientRect(), ll = map.unproject([x - r.left, y - r.top]); planNav({ lat: ll.lat, lon: ll.lng, n: `نقطة ${ll.lat.toFixed(3)}, ${ll.lng.toFixed(3)}`, k: "pin" }); };
+  el.addEventListener("touchstart", (e) => { if (e.touches.length !== 1 || NAV.on) return; s = e.touches[0]; t = setTimeout(() => fire(s.clientX, s.clientY), 550); }, { passive: true });
+  el.addEventListener("touchmove", (e) => { if (t && Math.hypot(e.touches[0].clientX - s.clientX, e.touches[0].clientY - s.clientY) > 10) { clearTimeout(t); t = null; } }, { passive: true });
+  ["touchend", "touchcancel"].forEach((ev) => el.addEventListener(ev, () => { clearTimeout(t); t = null; }));
+  map.on("contextmenu", (e) => { if (NAV.on) return; e.preventDefault?.(); LP = Date.now(); planNav({ lat: e.lngLat.lat, lon: e.lngLat.lng, n: `نقطة ${e.lngLat.lat.toFixed(3)}, ${e.lngLat.lng.toFixed(3)}`, k: "pin" }); });
+  map.on("dragstart", () => { if (NAV.on) NAV.follow = false; }); }
+
 if ("serviceWorker" in navigator && !location.search.includes("nosw")) navigator.serviceWorker.register("sw.js").catch(() => {});
-window.__gf = { enc, dec, unlock, moon, solunar, sunTimes, hourScores, explain, idb, show, get KEY() { return KEY; }, get RECS() { return RECS; }, get map() { return map; }, get OCEAN() { return OCEAN; }, get HOT() { return HOT; }, sync, pointSheet, recSheet, shareCard, startRoute };
+window.__gf = { enc, dec, unlock, moon, solunar, sunTimes, hourScores, explain, idb, show, get KEY() { return KEY; }, get RECS() { return RECS; }, get map() { return map; }, get OCEAN() { return OCEAN; }, get HOT() { return HOT; }, sync, pointSheet, recSheet, shareCard, startRoute, planNav, startNav, endNav, navFix: onFix, seaRoute, returnToPort, searchSheet, loadNavData, SAID, get NAV() { return NAV; }, get PLAN() { return PLAN; }, get PORTS() { return PORTS; }, simMode(v) { startNav.sim = v; }, navDepth, NP, get POIS() { return POIS; } };
 start();

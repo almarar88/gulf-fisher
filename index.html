@@ -29,7 +29,7 @@
     </div>
     <button id="loginBtn" class="btn primary block">تسجيل الدخول</button>
     <p id="loginErr" class="err"></p>
-    <p class="foot">تطبيق خاص والتسجيل مقفل. للتخطيط فقط، وليس للملاحة.</p>
+    <p class="foot">تطبيق خاص والتسجيل مقفل. مساعد ملاحي تقديري لا يغني عن الخرائط البحرية الرسمية.</p>
   </div>
 </div>
 <div id="app" class="hidden">
@@ -43,7 +43,9 @@
         <button class="glass round" id="lockBtn" aria-label="الخزنة" data-i="lock"></button>
       </div>
     </div>
+    <button class="glass gobar" id="goBtn"><span data-i="search"></span><span>وين بتروح؟</span><small>وجّهني في البحر</small></button>
     <div class="glass coord" id="coord"></div>
+    <div id="navHud" class="navhud"></div>
     <div class="glass legend" id="legend"></div>
   </section>
   <section id="v-today" class="view page hidden"></section>
